@@ -71,6 +71,22 @@ pub fn suspend(terminal: &mut Term) -> Result<()> {
         execute!(out, DisableMouseCapture)?;
     }
     execute!(out, LeaveAlternateScreen, crossterm::cursor::Show)?;
+
+    // Leaving the alternate screen hands back the primary one, still holding
+    // whatever the user's shell printed before dockyard started. A session that
+    // opens on top of somebody else's prompt reads as a glitch, so give it a
+    // blank screen.
+    //
+    // Scrolled away rather than erased: `ESC[2J` is inconsistent about whether
+    // the lines it clears reach the scrollback, and that history is the user's,
+    // not ours to drop. A newline at the bottom margin appends to scrollback in
+    // every terminal there is, so park the cursor there and feed it a full
+    // screen's worth.
+    let (_, rows) = crossterm::terminal::size().unwrap_or((80, 24));
+    execute!(out, crossterm::cursor::MoveTo(0, rows.saturating_sub(1)))?;
+    out.write_all(&b"\n".repeat(rows as usize))?;
+    execute!(out, crossterm::cursor::MoveTo(0, 0))?;
+
     out.flush()?;
     let _ = terminal; // the backend writes to the same stdout
     Ok(())
