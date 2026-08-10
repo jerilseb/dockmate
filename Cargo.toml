@@ -1,0 +1,34 @@
+[package]
+name = "dockyard"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ratatui = "0.30"
+crossterm = { version = "0.29", features = ["event-stream"] }
+bollard = { version = "0.21", features = ["chrono"] }
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "signal",
+    "io-std",
+    "io-util",
+    "time",
+    "sync",
+] }
+tokio-stream = "0.1"
+futures = "0.3"
+ansi-to-tui = "8"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+chrono = "0.4"
+base64 = "0.23"
+unicode-width = "0.2"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
