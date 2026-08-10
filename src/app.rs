@@ -247,6 +247,27 @@ impl LogState {
     }
 }
 
+/// A draggable boundary between two panes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Splitter {
+    /// Between the list and the log pane, dragged vertically.
+    Logs,
+    /// Between the list and the detail pane when they sit side by side,
+    /// dragged horizontally.
+    DetailSide,
+    /// The same boundary when the detail pane is stacked underneath instead,
+    /// dragged vertically.
+    DetailBelow,
+}
+
+/// Smallest a pane may be dragged to. Below these it stops being a pane and
+/// starts being a decoration — two rows of border and nothing between them.
+const MIN_LOG_ROWS: u16 = 5;
+const MIN_LIST_ROWS: u16 = 6;
+const MIN_LIST_COLS: u16 = 40;
+const MIN_DETAIL_ROWS: u16 = 4;
+const MIN_DETAIL_COLS: u16 = 24;
+
 /// Where the last frame put things the mouse can hit.
 ///
 /// A TUI has no widget tree to hit-test against, so the render pass records the
@@ -263,6 +284,10 @@ pub struct HitMap {
     /// Column headers that select a sort when clicked.
     pub list_headers: Vec<(Rect, Sort)>,
     pub logs: Option<Rect>,
+    pub detail: Option<Rect>,
+    /// The boundaries between panes, each a couple of cells thick so they can
+    /// actually be grabbed.
+    pub splitters: Vec<(Rect, Splitter)>,
     /// Palette entries, paired with their index into `action::COMMANDS`.
     pub palette_rows: Vec<(Rect, usize)>,
     pub confirm_yes: Option<Rect>,
@@ -280,6 +305,8 @@ impl HitMap {
         self.list_offset = 0;
         self.list_headers.clear();
         self.logs = None;
+        self.detail = None;
+        self.splitters.clear();
         self.palette_rows.clear();
         self.confirm_yes = None;
         self.confirm_no = None;
@@ -357,9 +384,17 @@ pub struct App {
     pub show_detail: bool,
     pub show_logs: bool,
 
+    /// Pane sizes the user has dragged to, in cells. `None` means "whatever
+    /// suits this terminal", which is what everyone gets until they drag.
+    log_rows: Option<u16>,
+    detail_cols: Option<u16>,
+    detail_rows: Option<u16>,
+
     /// Rebuilt by every render pass; read by the mouse reducer.
     pub hits: HitMap,
     last_click: Option<(Instant, Position)>,
+    /// The splitter currently under the button, if a drag is in progress.
+    drag: Option<Splitter>,
 
     pub spinner: usize,
     pub dirty: bool,
@@ -412,8 +447,12 @@ impl App {
             daemon_error: None,
             show_detail: false,
             show_logs: true,
+            log_rows: None,
+            detail_cols: None,
+            detail_rows: None,
             hits: HitMap::default(),
             last_click: None,
+            drag: None,
             spinner: 0,
             dirty: true,
             should_quit: false,
@@ -495,6 +534,44 @@ impl App {
         self.hits.clear();
     }
 
+    // -- pane sizes ----------------------------------------------------------
+    //
+    // Each of these resolves a dragged size against what the terminal can
+    // currently show, and writes the result back. Clamping here rather than at
+    // the point of the drag means a size stays valid across a window resize:
+    // drag the log pane tall, shrink the terminal, and it gives way rather than
+    // squeezing the list out of existence.
+
+    pub fn log_height(&mut self, available: u16) -> u16 {
+        fit(
+            &mut self.log_rows,
+            available / 5 * 2,
+            available,
+            MIN_LOG_ROWS,
+            MIN_LIST_ROWS,
+        )
+    }
+
+    pub fn detail_width(&mut self, available: u16) -> u16 {
+        fit(
+            &mut self.detail_cols,
+            available * 38 / 100,
+            available,
+            MIN_DETAIL_COLS,
+            MIN_LIST_COLS,
+        )
+    }
+
+    pub fn detail_height(&mut self, available: u16) -> u16 {
+        fit(
+            &mut self.detail_rows,
+            available * 45 / 100,
+            available,
+            MIN_DETAIL_ROWS,
+            MIN_LIST_ROWS,
+        )
+    }
+
     pub fn running_count(&self) -> usize {
         self.containers
             .iter()
@@ -549,13 +626,46 @@ impl App {
         };
         match ev.kind {
             MouseEventKind::Down(MouseButton::Left) => self.on_click(at),
+            // Only meaningful while a splitter is held; `on_drag` is a no-op
+            // otherwise, so dragging across the list still selects nothing.
+            MouseEventKind::Drag(MouseButton::Left) => self.on_drag(at),
+            MouseEventKind::Up(MouseButton::Left) => self.drag = None,
             MouseEventKind::ScrollDown => self.on_scroll(at, SCROLL_STEP),
             MouseEventKind::ScrollUp => self.on_scroll(at, -SCROLL_STEP),
-            // Drags, releases and the other buttons carry no meaning here, and
-            // reacting to them would only cause surprises.
+            // The other buttons carry no meaning here, and reacting to them
+            // would only cause surprises.
             _ => return,
         }
         self.dirty = true;
+    }
+
+    /// Move the held splitter to the pointer.
+    ///
+    /// The new size is measured from the far edge of the pane being resized, as
+    /// the previous frame drew it, so the boundary lands under the cursor
+    /// wherever the layout happens to have put things. It's stored raw; the
+    /// layout clamps it and writes the clamped value back, which is what keeps
+    /// a drag past the end from banking distance it would have to be dragged
+    /// back through.
+    fn on_drag(&mut self, at: Position) {
+        match self.drag {
+            Some(Splitter::Logs) => {
+                if let Some(logs) = self.hits.logs {
+                    self.log_rows = Some(logs.bottom().saturating_sub(at.y));
+                }
+            }
+            Some(Splitter::DetailSide) => {
+                if let Some(detail) = self.hits.detail {
+                    self.detail_cols = Some(detail.right().saturating_sub(at.x));
+                }
+            }
+            Some(Splitter::DetailBelow) => {
+                if let Some(detail) = self.hits.detail {
+                    self.detail_rows = Some(detail.bottom().saturating_sub(at.y));
+                }
+            }
+            None => {}
+        }
     }
 
     fn on_click(&mut self, at: Position) {
@@ -591,6 +701,28 @@ impl App {
 
         if let Some(&(_, sort)) = self.hits.list_headers.iter().find(|(r, _)| r.contains(at)) {
             self.set_sort(sort);
+            return;
+        }
+
+        // Before the panes themselves: a splitter lies on the border rows they
+        // include in their own rectangles.
+        if let Some(&(_, splitter)) = self.hits.splitters.iter().find(|(r, _)| r.contains(at)) {
+            let double = self
+                .last_click
+                .is_some_and(|(when, prev)| prev == at && when.elapsed() < DOUBLE_CLICK);
+            self.last_click = Some((Instant::now(), at));
+            if double {
+                // The only way back to the default size once you've dragged.
+                match splitter {
+                    Splitter::Logs => self.log_rows = None,
+                    Splitter::DetailSide => self.detail_cols = None,
+                    Splitter::DetailBelow => self.detail_rows = None,
+                }
+            } else {
+                // Pressing alone doesn't move anything — the boundary is
+                // already where it is. The drag that follows moves it.
+                self.drag = Some(splitter);
+            }
             return;
         }
 
@@ -1417,6 +1549,27 @@ impl App {
     }
 }
 
+/// Resolve one pane's size against the space available.
+///
+/// `size` is the dragged size, or `None` for "use `default`". It's clamped to
+/// leave `reserve` cells for the pane it shares the axis with, never taking
+/// itself below `min`, and the clamped value is written back so a size that a
+/// small terminal cut down doesn't spring back when the window grows again —
+/// dragging is a choice, but so is the last size that actually fitted.
+///
+/// When the two minimums can't both be met the pane being sized wins, and the
+/// layout squeezes its neighbour. Something has to give on a 10-row terminal,
+/// and the alternative is a pane with no interior at all.
+fn fit(size: &mut Option<u16>, default: u16, available: u16, min: u16, reserve: u16) -> u16 {
+    let resolved = size
+        .unwrap_or(default)
+        .clamp(min, available.saturating_sub(reserve).max(min));
+    if size.is_some() {
+        *size = Some(resolved);
+    }
+    resolved
+}
+
 fn cmp_f64(a: f64, b: f64) -> std::cmp::Ordering {
     a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal)
 }
@@ -1480,6 +1633,8 @@ mod tests {
             list_offset: 7,
             list_headers: vec![(Rect::default(), Sort::Cpu)],
             logs: Some(Rect::default()),
+            detail: Some(Rect::default()),
+            splitters: vec![(Rect::default(), Splitter::Logs)],
             palette_rows: vec![(Rect::default(), 3)],
             confirm_yes: Some(Rect::default()),
             confirm_no: Some(Rect::default()),
@@ -1494,6 +1649,8 @@ mod tests {
         assert_eq!(hits.list_offset, 0);
         assert!(hits.list_headers.is_empty());
         assert!(hits.logs.is_none());
+        assert!(hits.detail.is_none());
+        assert!(hits.splitters.is_empty());
         assert!(hits.palette_rows.is_empty());
         assert!(hits.confirm_yes.is_none());
         assert!(hits.confirm_no.is_none());
@@ -1523,6 +1680,48 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn an_undragged_pane_takes_the_default() {
+        let mut size = None;
+        assert_eq!(fit(&mut size, 12, 40, 5, 6), 12);
+        // Reading a size must not turn it into a dragged one, or the pane would
+        // stop tracking the terminal as it resizes.
+        assert_eq!(size, None);
+    }
+
+    #[test]
+    fn a_dragged_pane_keeps_its_size() {
+        let mut size = Some(20);
+        assert_eq!(fit(&mut size, 12, 40, 5, 6), 20);
+        assert_eq!(size, Some(20));
+    }
+
+    #[test]
+    fn a_dragged_pane_gives_way_to_its_neighbour() {
+        // 40 available, 6 reserved: 34 is as tall as this pane may be.
+        let mut size = Some(200);
+        assert_eq!(fit(&mut size, 12, 40, 5, 6), 34);
+        // Written back, so shrinking the terminal and growing it again doesn't
+        // restore a size the user can no longer see the effect of.
+        assert_eq!(size, Some(34));
+    }
+
+    #[test]
+    fn a_pane_is_never_dragged_away_entirely() {
+        let mut size = Some(0);
+        assert_eq!(fit(&mut size, 12, 40, 5, 6), 5);
+    }
+
+    #[test]
+    fn a_terminal_too_small_for_both_still_yields_a_pane() {
+        // 4 rows with 6 reserved: the reservation can't be honoured, and the
+        // minimum has to win over it rather than underflowing.
+        let mut size = None;
+        assert_eq!(fit(&mut size, 12, 4, 5, 6), 5);
+        let mut dragged = Some(30);
+        assert_eq!(fit(&mut dragged, 12, 4, 5, 6), 5);
     }
 
     #[test]

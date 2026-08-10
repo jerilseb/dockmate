@@ -71,6 +71,7 @@ modern terminal without a patched font.
 | click a tab | switch to it |
 | click a row | select it · double-click toggles the detail pane |
 | click a column header | sort by that column · click again to reverse |
+| drag a pane border | resize the pane · double-click the border to reset it |
 | wheel | scrolls whatever is under the pointer — the list, or the log pane |
 | click in a pane | focus it |
 | click a palette entry | run it |
@@ -115,10 +116,16 @@ in the wrong buffer, and attaching is debounced so holding `↓` doesn't open a 
 
 **The mouse hit-tests against the last frame.** A TUI has no widget tree to ask "what's at
 these coordinates?", so the render pass records the rectangles it drew — tab extents, the table
-body and its viewport offset, sortable column headers, palette rows, dialog buttons — and the
-mouse reducer consults that map. It's cleared and rebuilt every frame, so a hit region can
-never outlive the thing that drew it. Scroll deliberately targets what's under the pointer
-rather than what has keyboard focus, since that's what makes a wheel feel right.
+body and its viewport offset, sortable column headers, palette rows, dialog buttons, pane
+boundaries — and the mouse reducer consults that map. It's cleared and rebuilt every frame, so a
+hit region can never outlive the thing that drew it. Scroll deliberately targets what's under
+the pointer rather than what has keyboard focus, since that's what makes a wheel feel right.
+
+**Dragged pane sizes are a preference, not a layout.** A splitter drag records one number; the
+layout still owns the arithmetic, clamping that number against the current terminal on every
+frame and writing the clamped value back. So a pane dragged taller than a later, smaller
+terminal can hold gives way instead of squeezing its neighbour out, and doesn't spring back to
+an unusable size when the window grows again.
 
 **The terminal is always given back.** Raw mode and the alternate screen are unwound on clean
 exit, on error, and from a panic hook. The exec handoff is the delicate case: the stdin reader

@@ -12,7 +12,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Paragraph};
 
-use crate::app::{App, Focus, Mode, Tab};
+use crate::app::{App, Focus, Mode, Splitter, Tab};
 
 /// Below this width the detail pane stacks under the list instead of beside it.
 const NARROW: u16 = 96;
@@ -88,8 +88,8 @@ fn draw_body(frame: &mut Frame, app: &mut App, area: Rect) {
 
     let (top, logs_area) = if show_logs {
         // The log pane gets a generous share but never squeezes the list below
-        // a handful of rows.
-        let log_height = (area.height / 5 * 2).clamp(5, area.height.saturating_sub(6).max(5));
+        // a handful of rows. `log_height` honours a dragged size within that.
+        let log_height = app.log_height(area.height);
         let rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Min(4), Constraint::Length(log_height)])
@@ -99,17 +99,21 @@ fn draw_body(frame: &mut Frame, app: &mut App, area: Rect) {
         (area, None)
     };
 
+    // Which way the detail pane splits decides which way its boundary drags.
+    let detail_side = top.width >= NARROW;
     let (list_area, detail_area) = if show_detail {
-        if top.width >= NARROW {
+        if detail_side {
+            let width = app.detail_width(top.width);
             let cols = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints([Constraint::Min(40), Constraint::Percentage(38)])
+                .constraints([Constraint::Min(40), Constraint::Length(width)])
                 .split(top);
             (cols[0], Some(cols[1]))
         } else {
+            let height = app.detail_height(top.height);
             let rows = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Min(4), Constraint::Percentage(45)])
+                .constraints([Constraint::Min(4), Constraint::Length(height)])
                 .split(top);
             (rows[0], Some(rows[1]))
         }
@@ -120,11 +124,49 @@ fn draw_body(frame: &mut Frame, app: &mut App, area: Rect) {
     tables::draw(frame, app, list_area);
 
     if let Some(detail_area) = detail_area {
+        app.hits.detail = Some(detail_area);
+        app.hits.splitters.push((
+            if detail_side {
+                grab_column(detail_area)
+            } else {
+                grab_row(detail_area)
+            },
+            if detail_side {
+                Splitter::DetailSide
+            } else {
+                Splitter::DetailBelow
+            },
+        ));
         detail::draw(frame, app, detail_area);
     }
     if let Some(logs_area) = logs_area {
         app.hits.logs = Some(logs_area);
+        app.hits
+            .splitters
+            .push((grab_row(logs_area), Splitter::Logs));
         logs::draw(frame, app, logs_area);
+    }
+}
+
+/// The grab region for a pane's top edge: that border row plus the one above
+/// it, which belongs to the pane before. Two rows rather than one because a
+/// single-row target is more of a dare than an affordance.
+fn grab_row(pane: Rect) -> Rect {
+    Rect {
+        x: pane.x,
+        y: pane.y.saturating_sub(1),
+        width: pane.width,
+        height: 2,
+    }
+}
+
+/// The same for a pane's left edge.
+fn grab_column(pane: Rect) -> Rect {
+    Rect {
+        x: pane.x.saturating_sub(1),
+        y: pane.y,
+        width: 2,
+        height: pane.height,
     }
 }
 
