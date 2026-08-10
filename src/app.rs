@@ -346,6 +346,9 @@ pub struct App {
     pub pending: HashMap<String, &'static str>,
     pub global_pending: Vec<String>,
     pub confirm: Option<Job>,
+    /// Which button the confirm dialog has focused. Reset to `true` every time
+    /// the dialog opens, so a stale choice can't carry over into the next one.
+    pub confirm_accept: bool,
 
     pub toasts: Vec<Toast>,
     pub daemon: DaemonInfo,
@@ -403,6 +406,7 @@ impl App {
             pending: HashMap::new(),
             global_pending: Vec::new(),
             confirm: None,
+            confirm_accept: true,
             toasts: Vec::new(),
             daemon: DaemonInfo::default(),
             daemon_error: None,
@@ -435,7 +439,10 @@ impl App {
     /// Position of the selection within the current view.
     pub fn cursor(&self) -> Option<usize> {
         let id = self.selected[self.tab.index()].as_deref()?;
-        self.view().iter().position(|&i| self.row_id_at(i) == id)
+        let tab = self.tab;
+        self.view()
+            .iter()
+            .position(|&i| self.row_key_at(tab, i).as_deref() == Some(id))
     }
 
     pub fn selected_container(&self) -> Option<&ContainerRow> {
@@ -495,30 +502,9 @@ impl App {
             .count()
     }
 
-    /// The identity used to remember the selection on each tab.
-    fn row_id_at(&self, index: usize) -> &str {
-        match self.tab {
-            Tab::Containers => self
-                .containers
-                .get(index)
-                .map(|c| c.id.as_str())
-                .unwrap_or(""),
-            Tab::Images => self.images.get(index).map(|_| "").unwrap_or(""),
-            Tab::Volumes => self
-                .volumes
-                .get(index)
-                .map(|v| v.name.as_str())
-                .unwrap_or(""),
-            Tab::Networks => self
-                .networks
-                .get(index)
-                .map(|n| n.id.as_str())
-                .unwrap_or(""),
-        }
-    }
-
-    /// Owned variant, needed for images where the identity is a computed
-    /// `repo:tag` rather than a borrowable field.
+    /// The identity used to remember the selection on each tab. Owned rather
+    /// than borrowed because an image's identity is a computed `repo:tag`
+    /// rather than a field we could hand out a reference to.
     fn row_key_at(&self, tab: Tab, index: usize) -> Option<String> {
         match tab {
             Tab::Containers => self.containers.get(index).map(|c| c.id.clone()),
@@ -652,18 +638,14 @@ impl App {
 
     fn click_confirm(&mut self, at: Position) {
         if hit(self.hits.confirm_yes, at) {
-            if let Some(job) = self.confirm.take() {
-                self.start_job(job);
-            }
-            self.mode = Mode::Normal;
+            self.accept_confirm();
             return;
         }
         // Anywhere else — the cancel button, or outside the dialog entirely —
         // is a "no". Destructive actions should be hard to trigger by accident
         // and easy to back out of.
         if hit(self.hits.confirm_no, at) || !hit(self.hits.modal, at) {
-            self.confirm = None;
-            self.mode = Mode::Normal;
+            self.cancel_confirm();
         }
     }
 
@@ -783,18 +765,39 @@ impl App {
 
     fn on_key_confirm(&mut self, ev: KeyEvent) {
         match ev.code {
-            KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
-                if let Some(job) = self.confirm.take() {
-                    self.start_job(job);
+            // Move between the two buttons. There are only ever two, so every
+            // one of these is a toggle rather than a direction.
+            KeyCode::Left
+            | KeyCode::Right
+            | KeyCode::Tab
+            | KeyCode::BackTab
+            | KeyCode::Char('h')
+            | KeyCode::Char('l') => self.confirm_accept = !self.confirm_accept,
+
+            KeyCode::Enter => {
+                if self.confirm_accept {
+                    self.accept_confirm();
+                } else {
+                    self.cancel_confirm();
                 }
-                self.mode = Mode::Normal;
             }
-            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
-                self.confirm = None;
-                self.mode = Mode::Normal;
-            }
+            // `y` and `n` answer outright, without having to move first.
+            KeyCode::Char('y') | KeyCode::Char('Y') => self.accept_confirm(),
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => self.cancel_confirm(),
             _ => {}
         }
+    }
+
+    fn accept_confirm(&mut self) {
+        if let Some(job) = self.confirm.take() {
+            self.start_job(job);
+        }
+        self.mode = Mode::Normal;
+    }
+
+    fn cancel_confirm(&mut self) {
+        self.confirm = None;
+        self.mode = Mode::Normal;
     }
 
     /// Rank every command against the palette query.
@@ -1207,6 +1210,7 @@ impl App {
 
         if job.needs_confirmation() {
             self.confirm = Some(job);
+            self.confirm_accept = true;
             self.mode = Mode::Confirm;
         } else {
             self.start_job(job);

@@ -190,6 +190,33 @@ impl Theme {
         }
     }
 
+    /// A dialog button. Only the focused one is filled, so the pair reads as a
+    /// choice rather than as one recommendation next to some small print.
+    /// `destructive` tints that fill red, which is what makes an armed "yes"
+    /// on a delete look different from an armed "cancel".
+    pub fn button_style(&self, focused: bool, destructive: bool) -> Style {
+        if self.is_mono() {
+            // No colour to spend, so the fill has to come from the modifier.
+            return if focused {
+                Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+        }
+        if focused {
+            Style::default()
+                .fg(self.selection_text)
+                .bg(if destructive {
+                    self.danger
+                } else {
+                    self.primary
+                })
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(self.subtle).bg(self.surface_alt)
+        }
+    }
+
     /// Zebra striping for tables. Returns `None` for rows that should keep the
     /// terminal's own background.
     pub fn stripe(&self, index: usize) -> Option<Color> {

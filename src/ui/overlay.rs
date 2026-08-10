@@ -271,22 +271,19 @@ pub fn confirm(frame: &mut Frame, app: &mut App, area: Rect) {
             height: 1,
         };
 
+        // Only the focused button is filled. Every job that reaches this dialog
+        // is destructive, so "yes" is the one that gets the red fill.
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 yes_label,
-                Style::default()
-                    .fg(app.theme.selection_text)
-                    .bg(app.theme.danger)
-                    .add_modifier(Modifier::BOLD),
+                app.theme.button_style(app.confirm_accept, true),
             ))),
             yes,
         );
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 no_label,
-                Style::default()
-                    .fg(app.theme.text)
-                    .bg(app.theme.surface_alt),
+                app.theme.button_style(!app.confirm_accept, false),
             ))),
             no,
         );
