@@ -311,7 +311,7 @@ pub const COMMANDS: &[CommandSpec] = &[
     // ---- lifecycle -------------------------------------------------------
     CommandSpec {
         command: Command::Start,
-        keys: &[Key::c('s')],
+        keys: &[Key::c('u')],
         name: "container: start",
         help: "Start the selected container",
         scope: Scope::Containers,
@@ -351,7 +351,7 @@ pub const COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         command: Command::Exec,
-        keys: &[Key::c('e')],
+        keys: &[Key::c('s')],
         name: "container: shell",
         help: "Open an interactive shell inside the container",
         scope: Scope::Containers,
@@ -505,7 +505,7 @@ mod tests {
     fn shift_is_carried_by_the_character() {
         let lower = KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE);
         let upper = KeyEvent::new(KeyCode::Char('S'), KeyModifiers::SHIFT);
-        assert_eq!(resolve(&lower), Some(Command::Start));
+        assert_eq!(resolve(&lower), Some(Command::Exec));
         assert_eq!(resolve(&upper), Some(Command::Stop));
     }
 }

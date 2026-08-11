@@ -16,7 +16,7 @@ A terminal UI for managing Docker — containers, images, volumes and networks �
 ╭ logs · evalm8-server  ·  following ───────────────────────────────────────────╮
 │ 11:09:43 INFO  server listening on :9000                                       │
 ╰───────────────────────────────────────────────────────────────────────────────╯
- ↑↓ move   tab switch   ⏎ details   l hide logs   S stop   e shell   / filter   ?
+ ↑↓ move   tab switch   ⏎ details   l hide logs   S stop   s shell   / filter   ?
 ```
 
 ## What it does
@@ -26,7 +26,7 @@ A terminal UI for managing Docker — containers, images, volumes and networks �
   stream continuously, computed the same way `docker stats` computes them.
 - **Logs inline.** The selected container's logs follow in the bottom pane, with ANSI colours
   preserved, timestamps converted to your local timezone, and scroll/search/wrap.
-- **A real shell.** Press `e` and dockyard hands the terminal to `bash` (or `ash`, or `sh` —
+- **A real shell.** Press `s` and dockyard hands the terminal to `bash` (or `ash`, or `sh` —
   whatever the image has) running inside the container, forwards window resizes, and takes the
   terminal back cleanly when you exit.
 - **Lifecycle actions** with a confirmation step on anything destructive, an in-row spinner
@@ -99,8 +99,8 @@ all generated from the same table, so they can't drift.
 | `↑`/`↓`, `j`/`k`, `g`/`G`, `^u`/`^d` | move |
 | `⏎` | detail pane · `l` log pane · `^w` switch pane focus |
 | `f` `w` `t` | logs: follow · wrap · timestamps |
-| `s` `S` `r` `p` `K` | start · stop · restart · pause · kill |
-| `e` | shell into the container |
+| `u` `S` `r` `p` `K` | start · stop · restart · pause · kill |
+| `s` | shell into the container |
 | `d` `P` | delete selected · prune unused (both ask first) |
 | `y` | copy id to the clipboard (OSC 52, works over SSH) |
 | `/` `:` `?` | filter · command palette · help |
