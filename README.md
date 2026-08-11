@@ -31,6 +31,10 @@ A terminal UI for managing Docker — containers, images, volumes and networks �
   terminal back cleanly when you exit.
 - **Lifecycle actions** with a confirmation step on anything destructive, an in-row spinner
   while a job runs, and the daemon's own error text if it refuses.
+- **Stacks, folded.** `z` groups containers by their compose project (or swarm stack), read from
+  the labels rather than guessed from the name. Each header says how much of the stack is up,
+  rows shorten to their service name, `space` folds one and `Z` folds the lot. Containers nobody
+  deployed collect in a `standalone` bucket at the bottom.
 - **Fuzzy filter** (`/`) and a **command palette** (`:`) over every command dockyard has.
 - **Mouse, if you want it.** Click tabs and rows, double-click for details, click a column
   header to sort by it, wheel over whichever pane you're pointing at. Off with `--no-mouse`.
@@ -70,6 +74,7 @@ modern terminal without a patched font.
 |---|---|
 | click a tab | switch to it |
 | click a row | select it · double-click toggles the detail pane |
+| click a stack header | fold or unfold it |
 | click a column header | sort by that column · click again to reverse |
 | drag a pane border | resize the pane · double-click the border to reset it |
 | wheel | scrolls whatever is under the pointer — the list, or the log pane |
@@ -99,6 +104,7 @@ all generated from the same table, so they can't drift.
 | `d` `P` | delete selected · prune unused (both ask first) |
 | `y` | copy id to the clipboard (OSC 52, works over SSH) |
 | `/` `:` `?` | filter · command palette · help |
+| `z` `space` `Z` | group by stack · fold one · fold all |
 | `o` `O` `a` | sort column · reverse · show/hide stopped |
 | `^r` `q` | refresh now · quit |
 
@@ -113,6 +119,18 @@ so nothing is locked, and the render path can't block on the daemon.
 on every refresh and starts or aborts streams to match. The log stream carries a generation
 number so lines still in flight when you move the selection are discarded rather than landing
 in the wrong buffer, and attaching is debounced so holding `↓` doesn't open a stream per row.
+
+**Stacks are read, not inferred.** A container's name usually starts with its compose project, and
+grouping on that convention would be wrong: `container_name:` overrides it, and the project name
+defaults to the directory the compose file happens to sit in. So grouping reads
+`com.docker.compose.project` (falling back to `com.docker.stack.namespace`, which is what
+`docker stack deploy` writes instead), and those labels are in the filter's search key too. The
+payoff shows up when several stacks run the same service: filtering for `postgres` with grouping on
+lists one under `argilla` and another under `lakefs` rather than four rows you have to tell apart by
+their image tag. Grouping happens *after* filtering and sorting and only rearranges rows within a
+stack, so neither is undone — but the headers themselves stay in name order, because a stack has no
+single cpu figure and headers that reshuffled as usage drifted would be impossible to keep your
+place in.
 
 **The mouse hit-tests against the last frame.** A TUI has no widget tree to ask "what's at
 these coordinates?", so the render pass records the rectangles it drew — tab extents, the table
@@ -149,5 +167,5 @@ ranking. Everything else is verified by driving the real binary against a real d
 
 ## Not included
 
-Compose-project grouping, image pull/build, container create/run, swarm services, and registry
-authentication. The command table and tab structure leave room for them.
+Image pull/build, container create/run, acting on a whole stack at once, swarm service management,
+and registry authentication. The command table and tab structure leave room for them.

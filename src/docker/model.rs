@@ -131,8 +131,11 @@ pub struct ContainerRow {
     pub ports: Vec<PortBinding>,
     pub networks: Vec<String>,
     pub mounts: Vec<String>,
-    pub compose_project: Option<String>,
-    pub compose_service: Option<String>,
+    /// The stack this container belongs to: Compose's project, or a Swarm
+    /// namespace. `None` for anything started by hand.
+    pub stack: Option<String>,
+    /// Its role within that stack. Only meaningful alongside `stack`.
+    pub service: Option<String>,
 }
 
 impl ContainerRow {
@@ -187,19 +190,43 @@ impl ContainerRow {
             ports,
             networks,
             mounts,
-            compose_project: labels.get("com.docker.compose.project").cloned(),
-            compose_service: labels.get("com.docker.compose.service").cloned(),
+            stack: stack_of(&labels),
+            service: service_of(&labels),
         }
     }
 
     /// Everything the fuzzy filter should be able to see.
+    ///
+    /// The stack and service are in here because a container's name need not
+    /// mention either: `container_name:` overrides the default
+    /// `<project>-<service>-<n>`, and a project name defaults to the directory
+    /// the compose file sits in, which may be nothing like it.
     pub fn search_key(&self) -> String {
-        format!(
+        let mut key = format!(
             "{} {} {}",
             self.name,
             self.image,
             format::short_id(&self.id)
-        )
+        );
+        if let Some(stack) = &self.stack {
+            key.push(' ');
+            key.push_str(stack);
+        }
+        if let Some(service) = &self.service {
+            key.push(' ');
+            key.push_str(service);
+        }
+        key
+    }
+
+    /// The label a grouped row shows in place of the container name. Falls back
+    /// to the name for anything not in a stack, and for the odd stack container
+    /// that somehow has no service label.
+    pub fn service_label(&self) -> &str {
+        match (&self.stack, &self.service) {
+            (Some(_), Some(service)) => service,
+            _ => &self.name,
+        }
     }
 
     pub fn ports_display(&self) -> String {
@@ -212,6 +239,38 @@ impl ContainerRow {
             .collect::<Vec<_>>()
             .join(", ")
     }
+}
+
+/// Compose stamps `com.docker.compose.project` on everything it creates;
+/// `docker stack deploy` uses `com.docker.stack.namespace` instead. Reading both
+/// means a Swarm stack groups exactly the way a Compose one does, and a
+/// hand-started container reports no stack at all rather than a made-up one.
+fn stack_of(labels: &HashMap<String, String>) -> Option<String> {
+    labels
+        .get("com.docker.compose.project")
+        .or_else(|| labels.get("com.docker.stack.namespace"))
+        .filter(|s| !s.is_empty())
+        .cloned()
+}
+
+/// The service within the stack. Swarm spells its service names
+/// `<namespace>_<service>`, so the prefix comes off to leave the bare service
+/// and keep the two sources looking alike in a group.
+fn service_of(labels: &HashMap<String, String>) -> Option<String> {
+    if let Some(service) = labels
+        .get("com.docker.compose.service")
+        .filter(|s| !s.is_empty())
+    {
+        return Some(service.clone());
+    }
+    let swarm = labels
+        .get("com.docker.swarm.service.name")
+        .filter(|s| !s.is_empty())?;
+    let bare = match labels.get("com.docker.stack.namespace") {
+        Some(ns) if !ns.is_empty() => swarm.strip_prefix(&format!("{ns}_")).unwrap_or(swarm),
+        _ => swarm.as_str(),
+    };
+    Some(bare.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -507,8 +566,8 @@ mod tests {
             ports: vec![],
             networks: vec!["bridge".into()],
             mounts: vec!["data".into(), "data".into()],
-            compose_project: None,
-            compose_service: None,
+            stack: None,
+            service: None,
         }];
         let mut volumes = vec![VolumeRow {
             name: "data".into(),
@@ -534,5 +593,86 @@ mod tests {
         annotate_usage(&containers, &mut volumes, &mut networks);
         assert_eq!(volumes[0].used_by, 1);
         assert_eq!(networks[0].used_by, 1);
+    }
+
+    fn labels(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn compose_labels_name_the_stack() {
+        let l = labels(&[
+            ("com.docker.compose.project", "argilla"),
+            ("com.docker.compose.service", "postgres"),
+        ]);
+        assert_eq!(stack_of(&l).as_deref(), Some("argilla"));
+        assert_eq!(service_of(&l).as_deref(), Some("postgres"));
+    }
+
+    #[test]
+    fn a_swarm_stack_groups_like_a_compose_one() {
+        // `docker stack deploy` never writes the compose labels, and spells its
+        // service names `<namespace>_<service>`.
+        let l = labels(&[
+            ("com.docker.stack.namespace", "prod"),
+            ("com.docker.swarm.service.name", "prod_web"),
+        ]);
+        assert_eq!(stack_of(&l).as_deref(), Some("prod"));
+        assert_eq!(service_of(&l).as_deref(), Some("web"));
+    }
+
+    #[test]
+    fn a_hand_started_container_has_no_stack() {
+        let l = labels(&[("maintainer", "someone")]);
+        assert_eq!(stack_of(&l), None);
+        assert_eq!(service_of(&l), None);
+    }
+
+    #[test]
+    fn an_empty_label_is_not_a_stack() {
+        // A label present but blank would otherwise open a group with no name.
+        let l = labels(&[("com.docker.compose.project", "")]);
+        assert_eq!(stack_of(&l), None);
+    }
+
+    fn container(name: &str, stack: Option<&str>, service: Option<&str>) -> ContainerRow {
+        ContainerRow {
+            id: "abc123def456789".into(),
+            name: name.into(),
+            image: "postgres:14".into(),
+            image_id: String::new(),
+            command: String::new(),
+            state: State::Running,
+            health: Health::None,
+            status: String::new(),
+            created: 0,
+            ports: vec![],
+            networks: vec![],
+            mounts: vec![],
+            stack: stack.map(str::to_string),
+            service: service.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn the_filter_can_see_a_stack_the_name_omits() {
+        // A real case: project `nginx`, container named `evalm8-proxy`. Filtering
+        // by name alone would never find it.
+        let c = container("evalm8-proxy", Some("nginx"), Some("nginx-proxy"));
+        let key = c.search_key();
+        assert!(key.contains("nginx"), "{key}");
+        assert!(key.contains("nginx-proxy"), "{key}");
+    }
+
+    #[test]
+    fn a_grouped_row_is_labelled_by_service() {
+        let c = container("argilla-postgres-1", Some("argilla"), Some("postgres"));
+        assert_eq!(c.service_label(), "postgres");
+        // Nothing to shorten to when there's no stack.
+        let solo = container("my-postgres", None, None);
+        assert_eq!(solo.service_label(), "my-postgres");
     }
 }

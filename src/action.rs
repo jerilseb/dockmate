@@ -22,6 +22,11 @@ pub enum Command {
     Top,
     Bottom,
 
+    // Grouping
+    ToggleGroup,
+    ToggleCollapse,
+    ToggleCollapseAll,
+
     // Panes
     ToggleDetail,
     ToggleLogs,
@@ -227,6 +232,31 @@ pub const COMMANDS: &[CommandSpec] = &[
         name: "go: last",
         help: "Jump to the last row",
         scope: Scope::Global,
+        footer: false,
+    },
+    // ---- grouping --------------------------------------------------------
+    CommandSpec {
+        command: Command::ToggleGroup,
+        keys: &[Key::c('z')],
+        name: "group by stack",
+        help: "Group containers by their compose project or swarm stack",
+        scope: Scope::Containers,
+        footer: true,
+    },
+    CommandSpec {
+        command: Command::ToggleCollapse,
+        keys: &[Key::c(' ')],
+        name: "stack: fold",
+        help: "Fold or unfold the stack the cursor is in",
+        scope: Scope::Containers,
+        footer: false,
+    },
+    CommandSpec {
+        command: Command::ToggleCollapseAll,
+        keys: &[Key::c('Z')],
+        name: "stack: fold all",
+        help: "Fold every stack, or unfold them all if none are folded",
+        scope: Scope::Containers,
         footer: false,
     },
     // ---- panes -----------------------------------------------------------

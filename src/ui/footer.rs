@@ -21,7 +21,7 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
 fn draw_filter(frame: &mut Frame, app: &App, area: Rect) {
     let theme = &app.theme;
     let input = &app.filter[app.tab.index()];
-    let matched = app.view().len();
+    let matched = app.visible_items();
 
     let line = Line::from(vec![
         Span::styled(
@@ -108,6 +108,13 @@ fn short_label(command: Command, app: &App) -> &'static str {
                 "hide logs"
             } else {
                 "logs"
+            }
+        }
+        Command::ToggleGroup => {
+            if app.group_by_stack {
+                "flat"
+            } else {
+                "stacks"
             }
         }
         Command::Start => "start",

@@ -10,7 +10,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Cell, HighlightSpacing, Paragraph, Row, Table, TableState};
 
-use crate::app::{App, Focus, Sort, Tab};
+use crate::app::{App, Focus, Group, Sort, Tab, ViewRow};
 use crate::docker::model::{Health, State};
 use crate::ui::{self, theme::Theme};
 use crate::util::format;
@@ -56,7 +56,7 @@ fn tab_label(tab: Tab) -> &'static str {
 
 /// `12/31 · sorted by cpu ↓` — the state of the list at a glance.
 fn subtitle(app: &App) -> String {
-    let shown = app.view().len();
+    let shown = app.visible_items();
     let total = app.total_rows();
     let arrow = if app.sort_reversed() {
         app.symbols.arrow_up
@@ -73,6 +73,14 @@ fn subtitle(app: &App) -> String {
         app.symbols.bullet,
         app.sort().label()
     ));
+    if app.grouping() {
+        s.push_str(&format!(
+            "  {}  {} stack{}",
+            app.symbols.bullet,
+            app.groups.len(),
+            if app.groups.len() == 1 { "" } else { "s" }
+        ));
+    }
     if !app.filter[app.tab.index()].is_empty() {
         s.push_str(&format!("  {}  filtered", app.symbols.bullet));
     }
@@ -263,11 +271,25 @@ fn containers(frame: &mut Frame, app: &mut App, area: Rect, focused: bool) {
     let sym = app.symbols;
     let spinner = app.spinner;
 
+    let grouped = app.grouping();
+    // Zebra striping counts rows within a stack, not down the whole list, so each
+    // group starts on the same footing and the headers stay legible.
+    let mut stripe_at = 0usize;
+
     let rows: Vec<Row> = app
         .view()
         .iter()
-        .enumerate()
-        .filter_map(|(position, &index)| {
+        .filter_map(|row| {
+            let index = match row {
+                ViewRow::Group(g) => {
+                    stripe_at = 0;
+                    let group = app.groups.get(*g)?;
+                    return Some(group_row(&theme, &sym, group, &needle, widths[1], i_state));
+                }
+                ViewRow::Item(index) => *index,
+            };
+            let position = stripe_at;
+            stripe_at += 1;
             let c = app.containers.get(index)?;
             let stat = app.latest_stat(&c.id);
             let busy = app.pending.get(&c.id);
@@ -287,14 +309,21 @@ fn containers(frame: &mut Frame, app: &mut App, area: Rect, focused: bool) {
                 }
             };
 
+            // Under a header the stack name is already on screen, so the row
+            // says which *service* it is — `postgres`, not
+            // `argilla-postgres-1`. Indented, so the two levels read apart.
+            let name = if grouped {
+                format!(
+                    "  {}",
+                    format::truncate(c.service_label(), widths[1].saturating_sub(2) as usize)
+                )
+            } else {
+                format::truncate(&c.name, widths[1] as usize)
+            };
+
             let mut cells = vec![
                 Cell::from(Line::from(marker)),
-                name_cell(
-                    &theme,
-                    format::truncate(&c.name, widths[1] as usize),
-                    &needle,
-                    false,
-                ),
+                name_cell(&theme, name, &needle, false),
             ];
 
             if let Some(i) = i_image {
@@ -350,6 +379,63 @@ fn containers(frame: &mut Frame, app: &mut App, area: Rect, focused: bool) {
         .collect();
 
     render(frame, app, area, focused, &cols, &constraints, rows);
+}
+
+/// A stack's header row: a disclosure triangle, the stack name, and how much of
+/// it is up. The count sits in the STATE column so it lines up with the states of
+/// the rows underneath.
+fn group_row<'a>(
+    theme: &Theme,
+    sym: &crate::ui::theme::Symbols,
+    group: &Group,
+    needle: &str,
+    name_width: u16,
+    state_index: usize,
+) -> Row<'a> {
+    let chevron = if group.collapsed {
+        sym.arrow_right
+    } else {
+        sym.arrow_down
+    };
+    // The standalone bucket isn't a deployment, so it doesn't get the colour that
+    // says "this is a thing someone shipped".
+    let label_style = if group.is_standalone() {
+        Style::default()
+            .fg(theme.subtle)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+            .fg(theme.primary)
+            .add_modifier(Modifier::BOLD)
+    };
+
+    let mut cells = vec![
+        Cell::from(Line::from(vec![
+            Span::raw(" "),
+            Span::styled(chevron, Style::default().fg(theme.faint)),
+        ])),
+        Cell::from(Line::from(ui::highlight(
+            format::truncate(group.label(), name_width as usize),
+            needle,
+            label_style,
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        ))),
+    ];
+    while cells.len() < state_index {
+        cells.push(Cell::from(""));
+    }
+    cells.push(Cell::from(Span::styled(
+        if group.running == group.items {
+            format!("{} up", group.items)
+        } else {
+            format!("{}/{} up", group.running, group.items)
+        },
+        theme.dim(),
+    )));
+
+    Row::new(cells).height(1)
 }
 
 /// Prefer Docker's own status text over the bare state — `Up 2 days` and
@@ -450,7 +536,11 @@ fn images(frame: &mut Frame, app: &mut App, area: Rect, focused: bool) {
         .view()
         .iter()
         .enumerate()
-        .filter_map(|(position, &index)| {
+        .filter_map(|(position, row)| {
+            // These tabs are never grouped, so every row is a resource.
+            let ViewRow::Item(index) = *row else {
+                return None;
+            };
             let img = app.images.get(index)?;
             let in_use = img.containers > 0;
 
@@ -548,7 +638,11 @@ fn volumes(frame: &mut Frame, app: &mut App, area: Rect, focused: bool) {
         .view()
         .iter()
         .enumerate()
-        .filter_map(|(position, &index)| {
+        .filter_map(|(position, row)| {
+            // These tabs are never grouped, so every row is a resource.
+            let ViewRow::Item(index) = *row else {
+                return None;
+            };
             let v = app.volumes.get(index)?;
             let (dot, dot_style) = if v.used_by > 0 {
                 (sym.running, Style::default().fg(theme.success))
@@ -645,7 +739,11 @@ fn networks(frame: &mut Frame, app: &mut App, area: Rect, focused: bool) {
         .view()
         .iter()
         .enumerate()
-        .filter_map(|(position, &index)| {
+        .filter_map(|(position, row)| {
+            // These tabs are never grouped, so every row is a resource.
+            let ViewRow::Item(index) = *row else {
+                return None;
+            };
             let n = app.networks.get(index)?;
             let (dot, dot_style) = if n.used_by > 0 {
                 (sym.running, Style::default().fg(theme.success))

@@ -201,6 +201,47 @@ fn sort_cycle(tab: Tab) -> &'static [Sort] {
     }
 }
 
+/// One row of a rendered list.
+///
+/// Grouping is the only reason this isn't just an index: a header has to occupy
+/// a row of its own so it can be scrolled to, selected and clicked like any
+/// other. Ungrouped tabs only ever emit `Item`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewRow {
+    /// Index into [`App::groups`].
+    Group(usize),
+    /// Index into the tab's resource vector.
+    Item(usize),
+}
+
+/// A stack, as summarised on its header row.
+pub struct Group {
+    /// The stack name, or empty for the bucket that collects containers no stack
+    /// claims. Doubles as the key in [`App::collapsed`].
+    pub key: String,
+    /// Containers in the stack, whether or not they're currently listed — a
+    /// collapsed group still says how much it's hiding.
+    pub items: usize,
+    pub running: usize,
+    pub collapsed: bool,
+}
+
+impl Group {
+    pub fn label(&self) -> &str {
+        if self.key.is_empty() {
+            "standalone"
+        } else {
+            &self.key
+        }
+    }
+
+    /// The bucket for containers with no stack at all. Sorted last, and styled
+    /// down, because it's a leftovers pile rather than a thing someone deployed.
+    pub fn is_standalone(&self) -> bool {
+        self.key.is_empty()
+    }
+}
+
 /// Everything about the log pane.
 pub struct LogState {
     pub container_id: Option<String>,
@@ -347,11 +388,23 @@ pub struct App {
     pub volumes: Vec<VolumeRow>,
     pub networks: Vec<NetworkRow>,
 
-    /// Indices into the resource vectors, after filtering and sorting.
-    views: [Vec<usize>; 4],
+    /// The rows each tab currently shows, after filtering, sorting and grouping.
+    views: [Vec<ViewRow>; 4],
+    /// The stacks of the containers tab, rebuilt with its view. Empty unless
+    /// grouping is on.
+    pub groups: Vec<Group>,
+    /// Stacks the user has folded shut, by name. Kept outside `groups` so a
+    /// collapsed stack stays collapsed across refreshes — and across a stack
+    /// going away and coming back, which is what `compose down && compose up`
+    /// looks like from here.
+    collapsed: std::collections::HashSet<String>,
+    pub group_by_stack: bool,
     /// Selection, remembered by identity so it survives a refresh that
     /// reorders rows.
     selected: [Option<String>; 4],
+    /// Set instead of `selected[0]` when the cursor is on a group header. The
+    /// two are mutually exclusive; `on_group` is the question to ask.
+    selected_group: Option<String>,
     /// Scroll offset of each table, kept so the selection stays put visually.
     pub offset: [usize; 4],
 
@@ -427,7 +480,11 @@ impl App {
             volumes: Vec::new(),
             networks: Vec::new(),
             views: Default::default(),
+            groups: Vec::new(),
+            collapsed: Default::default(),
+            group_by_stack: false,
             selected: Default::default(),
+            selected_group: None,
             offset: [0; 4],
             filter: Default::default(),
             sort_index: [0; 4],
@@ -462,8 +519,40 @@ impl App {
 
     // -- accessors used by the UI -------------------------------------------
 
-    pub fn view(&self) -> &[usize] {
+    pub fn view(&self) -> &[ViewRow] {
         &self.views[self.tab.index()]
+    }
+
+    /// How many resources the view lists, ignoring group headers. This is the
+    /// number worth showing next to a total — `22/21` would be nonsense.
+    pub fn visible_items(&self) -> usize {
+        self.view()
+            .iter()
+            .filter(|row| matches!(row, ViewRow::Item(_)))
+            .count()
+    }
+
+    /// True when the cursor sits on a group header rather than a resource, in
+    /// which case there is no selected container and the panes that describe one
+    /// have nothing to say.
+    pub fn on_group(&self) -> bool {
+        self.grouping() && self.selected_group.is_some()
+    }
+
+    /// Grouping only applies to containers; the other tabs have no stack to
+    /// group by.
+    pub fn grouping(&self) -> bool {
+        self.tab == Tab::Containers && self.group_by_stack
+    }
+
+    /// The group the cursor is in, whether it's on the header or on one of the
+    /// rows underneath.
+    pub fn current_group(&self) -> Option<&Group> {
+        let key = match &self.selected_group {
+            Some(key) => key.clone(),
+            None => self.selected_container()?.stack.clone().unwrap_or_default(),
+        };
+        self.groups.iter().find(|g| g.key == key)
     }
 
     pub fn total_rows(&self) -> usize {
@@ -477,15 +566,23 @@ impl App {
 
     /// Position of the selection within the current view.
     pub fn cursor(&self) -> Option<usize> {
+        if self.on_group() {
+            let key = self.selected_group.as_deref()?;
+            return self.view().iter().position(|row| match row {
+                ViewRow::Group(g) => self.groups.get(*g).is_some_and(|group| group.key == key),
+                ViewRow::Item(_) => false,
+            });
+        }
         let id = self.selected[self.tab.index()].as_deref()?;
         let tab = self.tab;
-        self.view()
-            .iter()
-            .position(|&i| self.row_key_at(tab, i).as_deref() == Some(id))
+        self.view().iter().position(|row| match row {
+            ViewRow::Item(i) => self.row_key_at(tab, *i).as_deref() == Some(id),
+            ViewRow::Group(_) => false,
+        })
     }
 
     pub fn selected_container(&self) -> Option<&ContainerRow> {
-        if self.tab != Tab::Containers {
+        if self.tab != Tab::Containers || self.on_group() {
             return None;
         }
         let id = self.selected[0].as_deref()?;
@@ -737,9 +834,9 @@ impl App {
             self.focus = Focus::List;
             let row = self.hits.list_offset + (at.y - body.y) as usize;
             // Clicking past the last row shouldn't move the selection.
-            if row >= self.view().len() {
+            let Some(&target) = self.view().get(row) else {
                 return;
-            }
+            };
 
             let double = self
                 .last_click
@@ -747,8 +844,15 @@ impl App {
             self.last_click = Some((Instant::now(), at));
 
             self.set_cursor(row);
-            if double {
-                self.show_detail = !self.show_detail;
+            match target {
+                // A disclosure triangle opens and shuts on a plain click, which
+                // is what one looks like it should do.
+                ViewRow::Group(_) => self.toggle_collapse(),
+                ViewRow::Item(_) => {
+                    if double {
+                        self.show_detail = !self.show_detail;
+                    }
+                }
             }
         }
     }
@@ -1079,6 +1183,28 @@ impl App {
     // -- commands ------------------------------------------------------------
 
     pub fn run(&mut self, cmd: Command) {
+        // These all act on one container, and a stack header isn't one. Saying so
+        // beats a key that silently does nothing.
+        if self.on_group()
+            && matches!(
+                cmd,
+                Command::Start
+                    | Command::Stop
+                    | Command::Restart
+                    | Command::Pause
+                    | Command::Kill
+                    | Command::Remove
+                    | Command::Exec
+                    | Command::CopyId
+            )
+        {
+            self.toast(
+                ToastKind::Info,
+                "that row is a stack — pick a container in it".into(),
+            );
+            return;
+        }
+
         match cmd {
             Command::Quit => self.should_quit = true,
             Command::Help => self.mode = Mode::Help,
@@ -1144,6 +1270,18 @@ impl App {
                 self.show_stopped = !self.show_stopped;
                 self.rebuild_view(Tab::Containers);
             }
+            Command::ToggleGroup => {
+                if self.tab == Tab::Containers {
+                    self.group_by_stack = !self.group_by_stack;
+                    self.selected_group = None;
+                    // The row count changes wholesale, so a scroll position from
+                    // the old shape means nothing.
+                    self.offset[0] = 0;
+                    self.rebuild_view(Tab::Containers);
+                }
+            }
+            Command::ToggleCollapse => self.toggle_collapse(),
+            Command::ToggleCollapseAll => self.toggle_collapse_all(),
             Command::SortNext => {
                 let idx = self.tab.index();
                 self.sort_index[idx] = (self.sort_index[idx] + 1) % sort_cycle(self.tab).len();
@@ -1208,9 +1346,61 @@ impl App {
         let Some(&row) = self.view().get(position) else {
             return;
         };
-        let tab = self.tab;
-        self.selected[tab.index()] = self.row_key_at(tab, row);
+        match row {
+            ViewRow::Item(index) => {
+                let tab = self.tab;
+                self.selected_group = None;
+                self.selected[tab.index()] = self.row_key_at(tab, index);
+            }
+            // A header is selectable in its own right: it has to be, or a stack
+            // folded shut couldn't be reached to open again.
+            ViewRow::Group(g) => {
+                if let Some(group) = self.groups.get(g) {
+                    self.selected_group = Some(group.key.clone());
+                }
+            }
+        }
         self.sync_log_target();
+    }
+
+    /// Fold the stack under the cursor, or the one containing it.
+    ///
+    /// Collapsing from a row moves the cursor up onto the header, because the row
+    /// it was on is about to stop being listed.
+    fn toggle_collapse(&mut self) {
+        if !self.grouping() {
+            return;
+        }
+        let Some(key) = self.current_group().map(|g| g.key.clone()) else {
+            return;
+        };
+        if !self.collapsed.remove(&key) {
+            self.collapsed.insert(key.clone());
+        }
+        self.selected_group = Some(key);
+        self.rebuild_view(Tab::Containers);
+    }
+
+    /// Fold every stack, or unfold every stack if none are folded. With a dozen
+    /// projects this is the fastest way to get an overview of what's deployed.
+    fn toggle_collapse_all(&mut self) {
+        if !self.grouping() {
+            return;
+        }
+        let any_open = self.groups.iter().any(|g| !g.collapsed);
+        if any_open {
+            for group in &self.groups {
+                self.collapsed.insert(group.key.clone());
+            }
+            // Every row is about to disappear, so park the cursor on the header
+            // of whichever stack it was in.
+            if let Some(key) = self.current_group().map(|g| g.key.clone()) {
+                self.selected_group = Some(key);
+            }
+        } else {
+            self.collapsed.clear();
+        }
+        self.rebuild_view(Tab::Containers);
     }
 
     fn scroll_logs(&mut self, delta: isize) {
@@ -1461,7 +1651,17 @@ impl App {
             }
         }
 
-        self.views[tab.index()] = view;
+        self.views[tab.index()] = if tab == Tab::Containers && self.group_by_stack {
+            let (rows, groups) = group_rows(&self.containers, view, &self.collapsed);
+            self.groups = groups;
+            rows
+        } else {
+            if tab == Tab::Containers {
+                self.groups.clear();
+            }
+            view.into_iter().map(ViewRow::Item).collect()
+        };
+
         if tab == self.tab {
             self.ensure_selection();
         }
@@ -1536,17 +1736,108 @@ impl App {
     fn ensure_selection(&mut self) {
         let tab = self.tab;
         let idx = tab.index();
+
+        // A header selection outlives a refresh, but not the stack going away or
+        // grouping being switched off.
+        if self.selected_group.is_some() {
+            let alive = self.grouping()
+                && self
+                    .selected_group
+                    .as_ref()
+                    .is_some_and(|key| self.groups.iter().any(|g| &g.key == key));
+            if alive {
+                return;
+            }
+            self.selected_group = None;
+        }
+
         let still_there = self.selected[idx].as_ref().is_some_and(|id| {
-            self.views[idx]
-                .iter()
-                .any(|&i| self.row_key_at(tab, i).as_deref() == Some(id.as_str()))
+            self.views[idx].iter().any(|row| match row {
+                ViewRow::Item(i) => self.row_key_at(tab, *i).as_deref() == Some(id.as_str()),
+                ViewRow::Group(_) => false,
+            })
         });
-        if !still_there {
-            self.selected[idx] = self.views[idx]
-                .first()
-                .and_then(|&i| self.row_key_at(tab, i));
+        if still_there {
+            return;
+        }
+
+        let first_item = self.views[idx].iter().find_map(|row| match row {
+            ViewRow::Item(i) => Some(*i),
+            ViewRow::Group(_) => None,
+        });
+        self.selected[idx] = first_item.and_then(|i| self.row_key_at(tab, i));
+
+        // Every stack folded shut leaves no rows to select, so fall back to the
+        // first header rather than leaving the list with no cursor at all.
+        if self.selected[idx].is_none()
+            && let Some(ViewRow::Group(g)) = self.views[idx].first()
+            && let Some(group) = self.groups.get(*g)
+        {
+            self.selected_group = Some(group.key.clone());
         }
     }
+}
+
+/// Fold a flat run of container indices into stacks.
+///
+/// The order *within* each stack is whatever the caller established, so the
+/// active sort and the fuzzy ranking both survive grouping — filtering by
+/// `postgres` with grouping on shows one `postgres` under `argilla` and another
+/// under `lakefs`, which is the whole point of grouping by the label rather than
+/// by the name.
+///
+/// The stacks themselves go in name order, with the standalone bucket last. Not
+/// in the active sort's order: a stack has no single cpu figure, and headers that
+/// reshuffled as usage drifted would make the list impossible to keep your place
+/// in.
+fn group_rows(
+    containers: &[ContainerRow],
+    items: Vec<usize>,
+    collapsed: &std::collections::HashSet<String>,
+) -> (Vec<ViewRow>, Vec<Group>) {
+    let mut keys: Vec<String> = Vec::new();
+    let mut members: HashMap<String, Vec<usize>> = HashMap::new();
+
+    for index in items {
+        let key = containers[index].stack.clone().unwrap_or_default();
+        if !members.contains_key(&key) {
+            keys.push(key.clone());
+        }
+        members.entry(key).or_default().push(index);
+    }
+
+    keys.sort_by(|a, b| match (a.is_empty(), b.is_empty()) {
+        (true, false) => std::cmp::Ordering::Greater,
+        (false, true) => std::cmp::Ordering::Less,
+        _ => a.cmp(b),
+    });
+
+    let mut groups = Vec::with_capacity(keys.len());
+    let mut rows = Vec::new();
+
+    for key in keys {
+        let indices = members.remove(&key).unwrap_or_default();
+        let folded = collapsed.contains(&key);
+        let running = indices
+            .iter()
+            .filter(|&&i| containers[i].state.is_running())
+            .count();
+
+        rows.push(ViewRow::Group(groups.len()));
+        groups.push(Group {
+            key,
+            items: indices.len(),
+            running,
+            collapsed: folded,
+        });
+        // A folded stack keeps its counts — the header still has to say how much
+        // it's hiding.
+        if !folded {
+            rows.extend(indices.into_iter().map(ViewRow::Item));
+        }
+    }
+
+    (rows, groups)
 }
 
 /// Resolve one pane's size against the space available.
@@ -1729,5 +2020,165 @@ mod tests {
         for tab in Tab::ALL {
             assert!(!sort_cycle(tab).is_empty());
         }
+    }
+
+    // -- grouping ------------------------------------------------------------
+
+    fn container(name: &str, stack: Option<&str>, state: State) -> ContainerRow {
+        ContainerRow {
+            id: name.into(),
+            name: name.into(),
+            image: String::new(),
+            image_id: String::new(),
+            command: String::new(),
+            state,
+            health: crate::docker::model::Health::None,
+            status: String::new(),
+            created: 0,
+            ports: vec![],
+            networks: vec![],
+            mounts: vec![],
+            stack: stack.map(str::to_string),
+            service: Some(name.to_string()),
+        }
+    }
+
+    /// Three stacks and two hand-started containers, which is the shape of a
+    /// normal machine.
+    fn fixture() -> Vec<ContainerRow> {
+        vec![
+            container("lakefs", Some("lakefs"), State::Running),
+            container("argilla-postgres-1", Some("argilla"), State::Running),
+            container("my-redis", None, State::Running),
+            container("argilla-worker-1", Some("argilla"), State::Exited),
+            container("temporal", Some("temporal"), State::Running),
+            container("my-postgres", None, State::Exited),
+            container("lakefs-postgres", Some("lakefs"), State::Running),
+        ]
+    }
+
+    fn no_folds() -> std::collections::HashSet<String> {
+        std::collections::HashSet::new()
+    }
+
+    /// The stack of each row, for readable assertions.
+    fn shape(containers: &[ContainerRow], rows: &[ViewRow], groups: &[Group]) -> Vec<String> {
+        rows.iter()
+            .map(|row| match row {
+                ViewRow::Group(g) => format!("[{}]", groups[*g].label()),
+                ViewRow::Item(i) => containers[*i].name.clone(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn stacks_are_gathered_with_standalone_last() {
+        let containers = fixture();
+        let all: Vec<usize> = (0..containers.len()).collect();
+        let (rows, groups) = group_rows(&containers, all, &no_folds());
+
+        assert_eq!(
+            shape(&containers, &rows, &groups),
+            vec![
+                "[argilla]",
+                "argilla-postgres-1",
+                "argilla-worker-1",
+                "[lakefs]",
+                "lakefs",
+                "lakefs-postgres",
+                "[temporal]",
+                "temporal",
+                // Not a deployment, so it sorts below the things that are.
+                "[standalone]",
+                "my-redis",
+                "my-postgres",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_header_counts_what_is_up() {
+        let containers = fixture();
+        let all: Vec<usize> = (0..containers.len()).collect();
+        let (_, groups) = group_rows(&containers, all, &no_folds());
+
+        let argilla = groups.iter().find(|g| g.key == "argilla").unwrap();
+        assert_eq!((argilla.items, argilla.running), (2, 1));
+        let lakefs = groups.iter().find(|g| g.key == "lakefs").unwrap();
+        assert_eq!((lakefs.items, lakefs.running), (2, 2));
+    }
+
+    #[test]
+    fn a_folded_stack_shows_its_header_and_nothing_else() {
+        let containers = fixture();
+        let all: Vec<usize> = (0..containers.len()).collect();
+        let folded = ["argilla".to_string()].into_iter().collect();
+        let (rows, groups) = group_rows(&containers, all, &folded);
+
+        let shape = shape(&containers, &rows, &groups);
+        assert!(shape.contains(&"[argilla]".to_string()));
+        assert!(!shape.contains(&"argilla-postgres-1".to_string()));
+        // Still knows what it's hiding, which is what the header reports.
+        let argilla = groups.iter().find(|g| g.key == "argilla").unwrap();
+        assert_eq!(argilla.items, 2);
+        assert!(argilla.collapsed);
+        // Its neighbours are untouched.
+        assert!(shape.contains(&"lakefs-postgres".to_string()));
+    }
+
+    #[test]
+    fn folding_everything_leaves_only_headers() {
+        let containers = fixture();
+        let all: Vec<usize> = (0..containers.len()).collect();
+        let folded = ["argilla", "lakefs", "temporal", ""]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let (rows, _) = group_rows(&containers, all, &folded);
+        assert!(rows.iter().all(|r| matches!(r, ViewRow::Group(_))));
+        assert_eq!(rows.len(), 4);
+    }
+
+    #[test]
+    fn the_standalone_bucket_is_dropped_when_nothing_is_in_it() {
+        let containers = vec![container("lakefs", Some("lakefs"), State::Running)];
+        let (rows, groups) = group_rows(&containers, vec![0], &no_folds());
+        assert_eq!(groups.len(), 1);
+        assert_eq!(
+            shape(&containers, &rows, &groups),
+            vec!["[lakefs]", "lakefs"]
+        );
+    }
+
+    #[test]
+    fn order_within_a_stack_is_left_alone() {
+        // Grouping runs after filtering and sorting, so whatever order it is
+        // handed has to survive inside each group — otherwise a fuzzy ranking or
+        // a cpu sort would be silently undone.
+        let containers = fixture();
+        let reversed: Vec<usize> = (0..containers.len()).rev().collect();
+        let (rows, groups) = group_rows(&containers, reversed, &no_folds());
+        let shape = shape(&containers, &rows, &groups);
+        let lakefs = shape.iter().position(|s| s == "[lakefs]").unwrap();
+        assert_eq!(
+            &shape[lakefs + 1..lakefs + 3],
+            ["lakefs-postgres", "lakefs"]
+        );
+    }
+
+    #[test]
+    fn a_service_name_shared_by_two_stacks_stays_in_both() {
+        // The case that makes the stack label the right key and the service name
+        // the wrong one: these two postgres containers are unrelated.
+        let containers = vec![
+            container("postgres", Some("argilla"), State::Running),
+            container("postgres", Some("lakefs"), State::Running),
+        ];
+        let (rows, groups) = group_rows(&containers, vec![0, 1], &no_folds());
+        assert_eq!(groups.len(), 2);
+        assert_eq!(
+            shape(&containers, &rows, &groups),
+            vec!["[argilla]", "postgres", "[lakefs]", "postgres"]
+        );
     }
 }

@@ -164,6 +164,11 @@ fn gauge_color(app: &App, percent: f64) -> ratatui::style::Color {
 // ---------------------------------------------------------------------------
 
 fn container_lines(app: &App, width: u16) -> Vec<Line<'static>> {
+    // A stack header is selected rather than any one container, so describe the
+    // stack instead of leaving the pane blank.
+    if app.on_group() {
+        return stack_lines(app);
+    }
     let Some(c) = app.selected_container() else {
         return vec![empty(app)];
     };
@@ -190,8 +195,8 @@ fn container_lines(app: &App, width: u16) -> Vec<Line<'static>> {
 
     out.push(field(app, "created", format::age_from_epoch(c.created)));
 
-    if let (Some(project), Some(service)) = (&c.compose_project, &c.compose_service) {
-        out.push(field(app, "compose", format!("{project} / {service}")));
+    if let (Some(stack), Some(service)) = (&c.stack, &c.service) {
+        out.push(field(app, "stack", format!("{stack} / {service}")));
     }
 
     out.push(Line::raw(""));
@@ -231,6 +236,75 @@ fn container_lines(app: &App, width: u16) -> Vec<Line<'static>> {
     }
 
     out
+}
+
+/// What a whole stack looks like: its services, and what the lot of them are
+/// costing. The aggregate is the reason to look here rather than at the rows —
+/// "this project is using 3 GB" isn't visible anywhere else.
+fn stack_lines(app: &App) -> Vec<Line<'static>> {
+    let Some(group) = app.current_group() else {
+        return vec![empty(app)];
+    };
+    let members: Vec<&crate::docker::model::ContainerRow> = app
+        .containers
+        .iter()
+        .filter(|c| c.stack.clone().unwrap_or_default() == group.key)
+        .collect();
+
+    let mut out = vec![heading(app, group.label())];
+    out.push(field(
+        app,
+        "services",
+        format!(
+            "{} {}",
+            group.items,
+            if group.collapsed { "(folded)" } else { "" }
+        )
+        .trim_end()
+        .to_string(),
+    ));
+    out.push(colored_field(
+        app,
+        "running",
+        format!("{}/{}", group.running, group.items),
+        if group.running == group.items {
+            app.theme.success
+        } else {
+            app.theme.warn
+        },
+    ));
+
+    // Only running members report stats, so this is the stack's live cost.
+    let stats: Vec<&crate::docker::stats::StatSample> = members
+        .iter()
+        .filter_map(|c| app.latest_stat(&c.id))
+        .collect();
+    if !stats.is_empty() {
+        let cpu: f64 = stats.iter().map(|s| s.cpu_percent).sum();
+        let mem: u64 = stats.iter().map(|s| s.mem_bytes).sum();
+        out.push(field(app, "cpu", format!("{cpu:.1}%")));
+        out.push(field(app, "memory", format::bytes(mem)));
+    }
+
+    out.push(Line::raw(""));
+    out.push(section(app, "services"));
+    for c in &members {
+        out.push(bullet(
+            app,
+            format!("{}  {}", c.service_label(), state_summary(c)),
+            !c.state.is_running(),
+        ));
+    }
+
+    out
+}
+
+/// The shortest true thing to say about a container's state, for the stack list.
+fn state_summary(c: &crate::docker::model::ContainerRow) -> String {
+    if c.status.is_empty() {
+        return c.state.label().to_string();
+    }
+    c.status.split(" (").next().unwrap_or(&c.status).to_string()
 }
 
 fn image_lines(app: &App, width: u16) -> Vec<Line<'static>> {
