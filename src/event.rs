@@ -14,6 +14,9 @@ pub enum AppEvent {
     Stat { id: String, sample: StatSample },
     /// A log line from the stream identified by `generation`.
     LogLine { generation: u64, line: LogLine },
+    /// The stream is open, but the container hasn't said anything yet. Docker
+    /// has no "attached" signal of its own, so this stands in for one.
+    LogAttached { generation: u64 },
     /// The log stream ended (container stopped, or `follow` finished).
     LogEnd { generation: u64 },
     /// The log stream failed.

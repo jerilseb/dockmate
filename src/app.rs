@@ -1111,6 +1111,13 @@ impl App {
                     self.logs.scroll += 1;
                 }
             }
+            AppEvent::LogAttached { generation } => {
+                // Stop the spinner but leave any error in place: the pane then
+                // falls through to "no output yet", which is the truth.
+                if generation == self.logs.generation {
+                    self.logs.loading = false;
+                }
+            }
             AppEvent::LogEnd { generation } => {
                 if generation == self.logs.generation {
                     self.logs.loading = false;
