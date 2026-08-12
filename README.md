@@ -32,9 +32,11 @@ A terminal UI for managing Docker — containers, images, volumes and networks �
 - **Lifecycle actions** with a confirmation step on anything destructive, an in-row spinner
   while a job runs, and the daemon's own error text if it refuses.
 - **Stacks, folded.** `z` groups containers by their compose project (or swarm stack), read from
-  the labels rather than guessed from the name. Each header says how much of the stack is up,
-  rows shorten to their service name, `space` folds one and `Z` folds the lot. Containers nobody
-  deployed collect in a `standalone` bucket at the bottom.
+  the labels rather than guessed from the name. It opens with every stack folded, because the
+  reason to group a dozen projects is to see what's deployed at all — `space` unfolds the one you
+  came for and `Z` toggles the lot. Each header says how much of the stack is up and rows shorten
+  to their service name. Containers nobody deployed collect in a `standalone` bucket at the
+  bottom.
 - **Fuzzy filter** (`/`) and a **command palette** (`:`) over every command dockyard has.
 - **Mouse, if you want it.** Click tabs and rows, double-click for details, click a column
   header to sort by it, wheel over whichever pane you're pointing at. Off with `--no-mouse`.

@@ -1305,7 +1305,19 @@ impl App {
             Command::ToggleGroup => {
                 if self.tab == Tab::Containers {
                     self.group_by_stack = !self.group_by_stack;
-                    self.selected_group = None;
+                    if self.group_by_stack {
+                        // Stacked mode opens folded. The reason to group a dozen
+                        // projects is to see what's deployed at all, and opening
+                        // the one you want is a keystroke where folding the other
+                        // eleven is eleven.
+                        self.collapsed.extend(self.containers.iter().map(stack_key));
+                        // Every container row is about to stop being listed, so
+                        // park the cursor on the header of the stack it was in
+                        // rather than dropping it back to the top of the list.
+                        self.selected_group = self.selected_container().map(stack_key);
+                    } else {
+                        self.selected_group = None;
+                    }
                     // The row count changes wholesale, so a scroll position from
                     // the old shape means nothing.
                     self.offset[0] = 0;
@@ -1810,6 +1822,17 @@ impl App {
     }
 }
 
+/// The key of the stack a container belongs to, empty for the bucket that
+/// collects the ones no stack claims.
+///
+/// In one place because three paths have to agree on it: the grouping itself,
+/// folding everything as stacked mode opens, and parking the cursor on the right
+/// header afterwards. A disagreement would fold a stack nobody can see, or leave
+/// the cursor on a header that doesn't exist.
+fn stack_key(c: &ContainerRow) -> String {
+    c.stack.clone().unwrap_or_default()
+}
+
 /// Fold a flat run of container indices into stacks.
 ///
 /// The order *within* each stack is whatever the caller established, so the
@@ -1831,7 +1854,7 @@ fn group_rows(
     let mut members: HashMap<String, Vec<usize>> = HashMap::new();
 
     for index in items {
-        let key = containers[index].stack.clone().unwrap_or_default();
+        let key = stack_key(&containers[index]);
         if !members.contains_key(&key) {
             keys.push(key.clone());
         }
@@ -2194,6 +2217,25 @@ mod tests {
         let (rows, _) = group_rows(&containers, all, &folded);
         assert!(rows.iter().all(|r| matches!(r, ViewRow::Group(_))));
         assert_eq!(rows.len(), 4);
+    }
+
+    #[test]
+    fn stacked_mode_opens_with_every_stack_folded() {
+        // What `z` does on the way in. The test above names its fold keys by
+        // hand; this one checks the set *derived from the containers* covers
+        // every stack, standalone bucket included, so nothing opens expanded.
+        let containers = fixture();
+        let all: Vec<usize> = (0..containers.len()).collect();
+        let folded: std::collections::HashSet<String> = containers.iter().map(stack_key).collect();
+
+        let (rows, groups) = group_rows(&containers, all, &folded);
+
+        assert!(
+            groups.iter().all(|g| g.collapsed),
+            "every stack should open folded"
+        );
+        assert_eq!(rows.len(), groups.len(), "only headers should be listed");
+        assert!(rows.iter().all(|r| matches!(r, ViewRow::Group(_))));
     }
 
     #[test]
