@@ -7,8 +7,8 @@ A terminal UI for managing Docker — containers, images, volumes and networks �
 ╭ dockyard ──────────────────────────────────── docker 29.7.2  ·  20/21 running ╮
 │ ▸ Containers 21     Images 41     Volumes 27     Networks 8                   │
 ╰───────────────────────────────────────────────────────────────────────────────╯
-╭ containers  21  ·  name ▾ ────────────────────────────────────────────────────╮
-│   NAME                   IMAGE                    STATE          CPU      MEM  │
+╭ containers  21  ·  name ▴ ────────────────────────────────────────────────────╮
+│   NAME ▴                 IMAGE                    STATE          CPU      MEM  │
 │ ● argilla-postgres-1     postgres:14              Up 2 days     0.0%   15.6MB  │
 │ ● evalm8-server          …divyam-evalm8:dev-late… Up 2 days     2.0%    158MB  │
 │ ○ lakefs-setup           curlimages/curl:latest   Exited (0)       -        -  │
@@ -105,7 +105,7 @@ all generated from the same table, so they can't drift.
 | `y` | copy id to the clipboard (OSC 52, works over SSH) |
 | `/` `:` `?` | filter · command palette · help |
 | `z` `space` `Z` | group by stack · fold one · fold all |
-| `o` `O` `a` | sort column · reverse · show/hide stopped |
+| `o` `O` `a` | sort column · reverse · show/hide stopped — the sorted header carries a `▴`/`▾` |
 | `^r` `q` | refresh now · quit |
 
 ## Design notes

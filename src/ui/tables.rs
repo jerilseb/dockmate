@@ -58,10 +58,11 @@ fn tab_label(tab: Tab) -> &'static str {
 fn subtitle(app: &App) -> String {
     let shown = app.visible_items();
     let total = app.total_rows();
-    let arrow = if app.sort_reversed() {
-        app.symbols.arrow_up
-    } else {
+    // Same helper the column chevron uses, so the two always agree.
+    let arrow = if app.sort_descending() {
         app.symbols.arrow_down
+    } else {
+        app.symbols.arrow_up
     };
     let mut s = if shown == total {
         format!("{total}")
@@ -155,13 +156,22 @@ fn render<'a>(
 ) {
     let theme = app.theme.clone();
     let active_sort = app.sort();
+    // Only the active column is marked, so exactly one header grows by the two
+    // cells the chevron costs — every fixed-width column has that much slack.
+    let chevron = if app.sort_descending() {
+        app.symbols.arrow_down
+    } else {
+        app.symbols.arrow_up
+    };
 
     let header_cells: Vec<Cell> = cols
         .iter()
         .map(|c| {
             // The sorted column is picked out so the header doubles as an
-            // indicator of what you're looking at.
-            let style = if c.sort == Some(active_sort) {
+            // indicator of what you're looking at, and carries a chevron for
+            // which way it runs.
+            let active = c.sort == Some(active_sort);
+            let style = if active {
                 Style::default()
                     .fg(theme.accent)
                     .add_modifier(Modifier::BOLD)
@@ -170,7 +180,11 @@ fn render<'a>(
                     .fg(theme.faint)
                     .add_modifier(Modifier::BOLD)
             };
-            Cell::from(Line::from(Span::styled(c.title, style)).alignment(c.align))
+            let mut spans = vec![Span::styled(c.title, style)];
+            if active {
+                spans.push(Span::styled(format!(" {chevron}"), style));
+            }
+            Cell::from(Line::from(spans).alignment(c.align))
         })
         .collect();
 

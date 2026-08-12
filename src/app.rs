@@ -185,8 +185,24 @@ impl Sort {
             Sort::Cpu => "cpu",
             Sort::Mem => "mem",
             Sort::Size => "size",
-            Sort::Created => "created",
+            Sort::Created => "age",
             Sort::Driver => "driver",
+        }
+    }
+
+    /// Which way this column runs when the sort isn't reversed.
+    ///
+    /// The comparators aren't uniformly ascending, and they shouldn't be: names
+    /// read best from A, but nobody opens a cpu column to look at the idle
+    /// containers first. The chevron has to follow that or it would claim
+    /// `NAME ▾` counts downwards.
+    pub fn descends_by_default(self) -> bool {
+        match self {
+            Sort::Cpu | Sort::Mem | Sort::Size => true,
+            // `Created` sorts newest-first, but the column it marks shows an
+            // *age*. Newest is the smallest of those, so the column ascends
+            // even though the timestamps behind it descend.
+            Sort::Name | Sort::State | Sort::Driver | Sort::Created => false,
         }
     }
 }
@@ -619,6 +635,15 @@ impl App {
 
     pub fn sort_reversed(&self) -> bool {
         self.sort_reverse[self.tab.index()]
+    }
+
+    /// Which way the active column currently runs, largest-first being "down".
+    ///
+    /// The single source for both the chevron on the column header and the
+    /// arrow in the pane subtitle, so the two can't end up pointing opposite
+    /// ways on the same screen.
+    pub fn sort_descending(&self) -> bool {
+        self.sort().descends_by_default() != self.sort_reversed()
     }
 
     pub fn latest_stat(&self, id: &str) -> Option<&StatSample> {
@@ -2020,6 +2045,31 @@ mod tests {
         assert_eq!(fit(&mut size, 12, 4, 5, 6), 5);
         let mut dragged = Some(30);
         assert_eq!(fit(&mut dragged, 12, 4, 5, 6), 5);
+    }
+
+    #[test]
+    fn measured_columns_start_at_the_largest_value() {
+        // Opening a cpu or size column to find the idlest, smallest rows at the
+        // top would be useless, so these descend before they're reversed.
+        assert!(Sort::Cpu.descends_by_default());
+        assert!(Sort::Mem.descends_by_default());
+        assert!(Sort::Size.descends_by_default());
+    }
+
+    #[test]
+    fn text_columns_start_at_a() {
+        assert!(!Sort::Name.descends_by_default());
+        assert!(!Sort::State.descends_by_default());
+        assert!(!Sort::Driver.descends_by_default());
+    }
+
+    #[test]
+    fn the_age_column_ascends_because_newest_is_smallest() {
+        // The comparator puts the newest row first, but the column shows a
+        // duration, and the newest row has the smallest of those. The chevron
+        // describes the column you can see, not the timestamp behind it.
+        assert!(!Sort::Created.descends_by_default());
+        assert_eq!(Sort::Created.label(), "age");
     }
 
     #[test]
