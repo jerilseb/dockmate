@@ -1,4 +1,4 @@
-//! The single source of truth for what dockyard can do.
+//! The single source of truth for what dockmate can do.
 //!
 //! Key handling, the footer key-bar, the `?` help sheet and the `:` command
 //! palette all read from [`COMMANDS`], so a binding can never appear in one and
@@ -450,7 +450,7 @@ pub const COMMANDS: &[CommandSpec] = &[
         command: Command::Quit,
         keys: &[Key::c('q'), Key::ctrl('c')],
         name: "quit",
-        help: "Leave dockyard",
+        help: "Leave dockmate",
         scope: Scope::Global,
         footer: true,
     },

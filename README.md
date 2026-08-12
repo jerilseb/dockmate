@@ -1,10 +1,10 @@
-# dockyard
+# dockmate
 
 A terminal UI for managing Docker — containers, images, volumes and networks — built with
 [ratatui](https://ratatui.rs) and [bollard](https://docs.rs/bollard).
 
 ```
-╭ dockyard ──────────────────────────────────── docker 29.7.2  ·  20/21 running ╮
+╭ dockmate ──────────────────────────────────── docker 29.7.2  ·  20/21 running ╮
 │ ▸ Containers 21     Images 41     Volumes 27     Networks 8                   │
 ╰───────────────────────────────────────────────────────────────────────────────╯
 ╭ containers  21  ·  name ▴ ────────────────────────────────────────────────────╮
@@ -21,12 +21,12 @@ A terminal UI for managing Docker — containers, images, volumes and networks �
 
 ## What it does
 
-- **Live everything.** Container state updates the moment it changes — dockyard subscribes to
+- **Live everything.** Container state updates the moment it changes — dockmate subscribes to
   the daemon's own event stream rather than only polling. CPU, memory, network and disk figures
   stream continuously, computed the same way `docker stats` computes them.
 - **Logs inline.** The selected container's logs follow in the bottom pane, with ANSI colours
   preserved, timestamps converted to your local timezone, and scroll/search/wrap.
-- **A real shell.** Press `s` and dockyard hands the terminal to `bash` (or `ash`, or `sh` —
+- **A real shell.** Press `s` and dockmate hands the terminal to `bash` (or `ash`, or `sh` —
   whatever the image has) running inside the container, forwards window resizes, and takes the
   terminal back cleanly when you exit.
 - **Lifecycle actions** with a confirmation step on anything destructive, an in-row spinner
@@ -37,7 +37,7 @@ A terminal UI for managing Docker — containers, images, volumes and networks �
   came for and `Z` toggles the lot. Each header says how much of the stack is up and rows shorten
   to their service name. Containers nobody deployed collect in a `standalone` bucket at the
   bottom.
-- **Fuzzy filter** (`/`) and a **command palette** (`:`) over every command dockyard has.
+- **Fuzzy filter** (`/`) and a **command palette** (`:`) over every command dockmate has.
 - **Mouse, if you want it.** Click tabs and rows, double-click for details, click a column
   header to sort by it, wheel over whichever pane you're pointing at. Off with `--no-mouse`.
 
@@ -52,18 +52,18 @@ Requires Rust 1.86+ and access to a Docker daemon.
 ## Usage
 
 ```sh
-dockyard                              # auto-detect: $DOCKER_HOST, else the local socket
-dockyard --host tcp://10.0.0.5:2375   # a remote daemon
-dockyard --interval 1000              # poll every second instead of every two
+dockmate                              # auto-detect: $DOCKER_HOST, else the local socket
+dockmate --host tcp://10.0.0.5:2375   # a remote daemon
+dockmate --interval 1000              # poll every second instead of every two
 ```
 
 ### Appearance
 
 | Flag | Effect |
 |---|---|
-| `--ascii` | Pure 7-bit ASCII — borders, status marks, key names. Also `DOCKYARD_ASCII=1`. |
-| `--icons` | Nerd Font icons in the tab bar. Also `DOCKYARD_ICONS=1`. |
-| `--ansi` | Use the terminal's own 16 colours instead of dockyard's palette. |
+| `--ascii` | Pure 7-bit ASCII — borders, status marks, key names. Also `DOCKMATE_ASCII=1`. |
+| `--icons` | Nerd Font icons in the tab bar. Also `DOCKMATE_ICONS=1`. |
+| `--ansi` | Use the terminal's own 16 colours instead of dockmate's palette. |
 | `--no-color` | No colour at all. `NO_COLOR` is honoured automatically. |
 | `--no-mouse` | Don't capture the mouse. |
 
@@ -87,7 +87,7 @@ modern terminal without a patched font.
 
 Capturing the mouse means your terminal stops handling click-drag selection itself. **Hold
 Shift while selecting** and every mainstream terminal bypasses the capture, so copy/paste keeps
-working. If you'd rather not deal with it, `--no-mouse` turns the whole thing off and dockyard
+working. If you'd rather not deal with it, `--no-mouse` turns the whole thing off and dockmate
 never asks the terminal to report anything.
 
 ### Keys

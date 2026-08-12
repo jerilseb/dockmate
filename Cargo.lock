@@ -515,7 +515,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "dockyard"
+name = "dockmate"
 version = "0.1.0"
 dependencies = [
  "ansi-to-tui",

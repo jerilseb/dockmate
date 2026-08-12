@@ -104,7 +104,7 @@ mod tests {
 
     #[test]
     fn long_ids_are_clipped() {
-        let msg = "network dockyard-testnet id \
+        let msg = "network dockmate-testnet id \
                    4f3a2b1c9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a \
                    has active endpoints";
         let out = shorten_ids(msg);

@@ -73,7 +73,7 @@ pub fn suspend(terminal: &mut Term) -> Result<()> {
     execute!(out, LeaveAlternateScreen, crossterm::cursor::Show)?;
 
     // Leaving the alternate screen hands back the primary one, still holding
-    // whatever the user's shell printed before dockyard started. A session that
+    // whatever the user's shell printed before dockmate started. A session that
     // opens on top of somebody else's prompt reads as a glitch, so give it a
     // blank screen.
     //

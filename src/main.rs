@@ -1,4 +1,4 @@
-//! dockyard — a terminal UI for managing Docker.
+//! dockmate — a terminal UI for managing Docker.
 
 mod action;
 mod app;
@@ -26,7 +26,7 @@ const TICK: Duration = Duration::from_millis(100);
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "dockyard",
+    name = "dockmate",
     version,
     about = "A terminal UI for managing Docker containers, images, volumes and networks"
 )]
@@ -74,9 +74,9 @@ impl Args {
             Palette::TrueColor
         };
 
-        let glyphs = if self.ascii || std::env::var_os("DOCKYARD_ASCII").is_some() {
+        let glyphs = if self.ascii || std::env::var_os("DOCKMATE_ASCII").is_some() {
             Glyphs::Ascii
-        } else if self.icons || std::env::var_os("DOCKYARD_ICONS").is_some() {
+        } else if self.icons || std::env::var_os("DOCKMATE_ICONS").is_some() {
             Glyphs::Nerd
         } else {
             Glyphs::Unicode
@@ -212,7 +212,7 @@ async fn run_exec(
     let size = crossterm::terminal::size().unwrap_or((80, 24));
 
     tui::suspend(terminal).context("suspending the tui")?;
-    println!("\r\n── dockyard: shell in {name} ── type `exit` to come back ──\r\n");
+    println!("\r\n── dockmate: shell in {name} ── type `exit` to come back ──\r\n");
 
     let result = docker::exec::run(client, id, size)
         .await
