@@ -140,7 +140,7 @@ pub const COMMANDS: &[CommandSpec] = &[
     // ---- navigation ------------------------------------------------------
     CommandSpec {
         command: Command::NextTab,
-        keys: &[Key::code(KeyCode::Tab)],
+        keys: &[Key::code(KeyCode::Tab), Key::code(KeyCode::Right)],
         name: "go: next tab",
         help: "Move to the next tab",
         scope: Scope::Global,
@@ -148,7 +148,7 @@ pub const COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         command: Command::PrevTab,
-        keys: &[Key::code(KeyCode::BackTab)],
+        keys: &[Key::code(KeyCode::BackTab), Key::code(KeyCode::Left)],
         name: "go: previous tab",
         help: "Move to the previous tab",
         scope: Scope::Global,

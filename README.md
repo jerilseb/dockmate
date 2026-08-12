@@ -95,7 +95,7 @@ all generated from the same table, so they can't drift.
 
 | | |
 |---|---|
-| `1`–`4`, `tab` | switch tab |
+| `1`–`4`, `←`/`→`, `tab` | switch tab |
 | `↑`/`↓`, `j`/`k`, `g`/`G`, `^u`/`^d` | move |
 | `⏎` | detail pane · `l` log pane · `^w` switch pane focus |
 | `f` `w` `t` | logs: follow · wrap · timestamps |
