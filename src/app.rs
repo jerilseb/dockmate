@@ -1282,9 +1282,16 @@ impl App {
                 self.mode = Mode::Palette;
             }
             Command::Filter => self.mode = Mode::Filter,
-            Command::ClearFilter => {
-                self.filter[self.tab.index()].clear();
-                self.rebuild_view(self.tab);
+            // Esc peels one layer off at a time, topmost first, the way it does
+            // everywhere else. The detail pane is the thing most recently put on
+            // screen, so it goes before a filter that has been sitting there.
+            Command::Dismiss => {
+                if self.show_detail {
+                    self.show_detail = false;
+                } else {
+                    self.filter[self.tab.index()].clear();
+                    self.rebuild_view(self.tab);
+                }
             }
             Command::Refresh => {
                 self.refresher.refresh_now();

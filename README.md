@@ -114,6 +114,7 @@ all generated from the same table, so they can't drift.
 | `c` | volumes: measure how much disk each one uses |
 | `y` | copy id to the clipboard (OSC 52, works over SSH) |
 | `/` `:` `?` | filter · command palette · help |
+| `esc` | close the detail pane, then clear the filter |
 | `z` `space` `Z` | group by stack · fold one · fold all |
 | `o` `O` `a` | sort column · reverse · show/hide stopped — the sorted header carries a `▴`/`▾` |
 | `^r` `q` | refresh now · quit |

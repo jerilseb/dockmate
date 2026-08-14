@@ -51,7 +51,7 @@ pub enum Command {
     // Misc
     CopyId,
     Filter,
-    ClearFilter,
+    Dismiss,
     Palette,
     Help,
     Refresh,
@@ -402,10 +402,10 @@ pub const COMMANDS: &[CommandSpec] = &[
         footer: true,
     },
     CommandSpec {
-        command: Command::ClearFilter,
+        command: Command::Dismiss,
         keys: &[Key::code(KeyCode::Esc)],
-        name: "clear filter",
-        help: "Drop the current filter and show everything again",
+        name: "dismiss",
+        help: "Close the detail pane, or clear the filter once it's closed",
         scope: Scope::Global,
         footer: false,
     },
