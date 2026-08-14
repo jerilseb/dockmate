@@ -20,6 +20,7 @@ use crate::docker::logs::{self, LogLine};
 use crate::docker::model::{ContainerRow, DaemonInfo, ImageRow, NetworkRow, State, VolumeRow};
 use crate::docker::refresh::Refresher;
 use crate::docker::stats::{StatSample, StatsManager};
+use crate::docker::usage;
 use crate::docker::{Client, model};
 use crate::event::AppEvent;
 use crate::ui::theme::{Symbols, Theme};
@@ -432,6 +433,13 @@ pub struct App {
     /// Most recent reading per container. Only the latest is kept — nothing in
     /// the UI plots history.
     pub stats: HashMap<String, StatSample>,
+    /// Volume sizes in bytes, by name, from the last measurement the user
+    /// asked for. Kept beside the rows rather than only written into them, so
+    /// a refresh that rebuilds `volumes` doesn't throw the answer away.
+    volume_sizes: HashMap<String, i64>,
+    /// True while a measurement is in flight. It can take tens of seconds, so
+    /// the size column spins rather than sitting blank.
+    pub measuring_volumes: bool,
     pub logs: LogState,
     log_pending: Option<(String, Instant)>,
 
@@ -507,6 +515,8 @@ impl App {
             sort_reverse: [false; 4],
             show_stopped: true,
             stats: HashMap::new(),
+            volume_sizes: HashMap::new(),
+            measuring_volumes: false,
             logs: LogState::default(),
             log_pending: None,
             palette_input: Input::default(),
@@ -1099,6 +1109,7 @@ impl App {
                 self.volumes = snap.volumes;
                 self.networks = snap.networks;
                 model::annotate_usage(&self.containers, &mut self.volumes, &mut self.networks);
+                self.apply_volume_sizes();
 
                 // Drop stats history for containers that no longer exist, or it
                 // grows without bound across a long session.
@@ -1169,6 +1180,30 @@ impl App {
                 }
                 self.refresher.refresh_now();
             }
+            AppEvent::VolumeUsage(sizes) => {
+                self.measuring_volumes = false;
+                let measured = sizes.len();
+                let total: i64 = sizes.values().sum();
+                self.volume_sizes = sizes;
+                self.apply_volume_sizes();
+                // The sort only has something to sort once the numbers land.
+                self.rebuild_view(Tab::Volumes);
+                self.toast(
+                    ToastKind::Success,
+                    format!(
+                        "measured {measured} volume{}, {} in total",
+                        if measured == 1 { "" } else { "s" },
+                        crate::util::format::bytes(total.max(0) as u64)
+                    ),
+                );
+            }
+            AppEvent::VolumeUsageError(msg) => {
+                self.measuring_volumes = false;
+                self.toast(
+                    ToastKind::Error,
+                    format!("could not measure volumes: {msg}"),
+                );
+            }
             AppEvent::Daemon(info) => self.daemon = *info,
             AppEvent::DaemonError(msg) => {
                 self.daemon_error = Some(msg);
@@ -1191,6 +1226,7 @@ impl App {
         let animating = !self.pending.is_empty()
             || !self.global_pending.is_empty()
             || self.logs.loading
+            || self.measuring_volumes
             || !self.toasts.is_empty();
         if animating {
             self.spinner = self.spinner.wrapping_add(1);
@@ -1351,6 +1387,43 @@ impl App {
                     self.submit(job);
                 }
             }
+
+            Command::MeasureVolumes => self.measure_volumes(),
+        }
+    }
+
+    /// Ask the daemon to size every volume.
+    ///
+    /// Deliberately a thing you press rather than something that happens when
+    /// the tab opens: the daemon walks each volume's directory, which on a
+    /// machine with a fat build cache is tens of seconds of disk. A tab that
+    /// quietly did that on arrival would be worse than one that waits to be
+    /// asked.
+    fn measure_volumes(&mut self) {
+        if self.tab != Tab::Volumes {
+            return;
+        }
+        if self.measuring_volumes {
+            self.toast(ToastKind::Info, "already measuring".into());
+            return;
+        }
+        self.measuring_volumes = true;
+        self.toast(
+            ToastKind::Info,
+            "measuring volumes — the daemon walks each one, so this can take a while".into(),
+        );
+        usage::spawn(self.client.clone(), self.tx.clone());
+    }
+
+    /// Copy the last measurement onto the rows.
+    ///
+    /// Sizes live in their own map because the rows are replaced wholesale on
+    /// every poll; without this the numbers would vanish two seconds after they
+    /// arrived. Volumes created since the measurement simply have no entry, and
+    /// keep showing as unmeasured.
+    fn apply_volume_sizes(&mut self) {
+        for v in &mut self.volumes {
+            v.size = self.volume_sizes.get(&v.name).copied();
         }
     }
 

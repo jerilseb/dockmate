@@ -26,6 +26,10 @@ pub enum AppEvent {
         job: Job,
         result: Result<String, String>,
     },
+    /// Volume sizes, by volume name, from a measurement the user asked for.
+    VolumeUsage(std::collections::HashMap<String, i64>),
+    /// The measurement failed.
+    VolumeUsageError(String),
     /// Daemon banner details, fetched once at startup.
     Daemon(Box<DaemonInfo>),
     /// The daemon became unreachable.

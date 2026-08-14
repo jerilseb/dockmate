@@ -642,6 +642,7 @@ fn volumes(frame: &mut Frame, app: &mut App, area: Rect, focused: bool) {
         Constraint::Min(20),   // name
         Constraint::Length(9), // driver
         Constraint::Length(5), // used by
+        Constraint::Length(8), // size
         Constraint::Length(9), // age
     ];
     let mut cols = vec![
@@ -649,6 +650,7 @@ fn volumes(frame: &mut Frame, app: &mut App, area: Rect, focused: bool) {
         col("NAME", Alignment::Left, Some(Sort::Name)),
         col("DRIVER", Alignment::Left, None),
         col("USED", Alignment::Right, None),
+        col("SIZE", Alignment::Right, Some(Sort::Size)),
         col("AGE", Alignment::Right, Some(Sort::Created)),
     ];
     if wide {
@@ -660,6 +662,8 @@ fn volumes(frame: &mut Frame, app: &mut App, area: Rect, focused: bool) {
     let theme = app.theme.clone();
     let needle = app.filter[app.tab.index()].value.clone();
     let sym = app.symbols;
+    let measuring = app.measuring_volumes;
+    let spinner = app.spinner;
 
     let rows: Vec<Row> = app
         .view()
@@ -705,6 +709,10 @@ fn volumes(frame: &mut Frame, app: &mut App, area: Rect, focused: bool) {
                     .alignment(Alignment::Right),
                 ),
                 Cell::from(
+                    Line::from(size_cell(v.size, measuring, &theme, sym, spinner))
+                        .alignment(Alignment::Right),
+                ),
+                Cell::from(
                     Line::from(Span::styled(
                         v.created
                             .map(|c| format::duration_short(chrono::Utc::now().timestamp() - c))
@@ -716,7 +724,7 @@ fn volumes(frame: &mut Frame, app: &mut App, area: Rect, focused: bool) {
             ];
             if wide {
                 cells.push(Cell::from(Span::styled(
-                    format::truncate_start(&v.mountpoint, widths[5] as usize),
+                    format::truncate_start(&v.mountpoint, widths[6] as usize),
                     theme.faint_style(),
                 )));
             }
@@ -730,6 +738,29 @@ fn volumes(frame: &mut Frame, app: &mut App, area: Rect, focused: bool) {
         .collect();
 
     render(frame, app, area, focused, &cols, &constraints, rows);
+}
+
+/// The size cell: a number once measured, a spinner while the daemon is
+/// walking, and a dash the rest of the time.
+///
+/// The dash is the honest answer rather than a placeholder — Docker doesn't
+/// hand out volume sizes with the listing, so until someone asks for a
+/// measurement there is genuinely nothing to show.
+fn size_cell(
+    size: Option<i64>,
+    measuring: bool,
+    theme: &Theme,
+    sym: crate::ui::theme::Symbols,
+    spinner: usize,
+) -> Span<'static> {
+    match (size, measuring) {
+        (Some(bytes), _) => Span::styled(format::bytes_i64(bytes), theme.base()),
+        (None, true) => Span::styled(
+            sym.spin(spinner / 2).to_string(),
+            Style::default().fg(theme.info),
+        ),
+        (None, false) => Span::styled("-".to_string(), theme.faint_style()),
+    }
 }
 
 // ---------------------------------------------------------------------------

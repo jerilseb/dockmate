@@ -528,6 +528,7 @@ dependencies = [
  "futures",
  "libc",
  "ratatui",
+ "serde_json",
  "tokio",
  "tokio-stream",
  "unicode-width",

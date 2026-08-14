@@ -4,6 +4,7 @@ pub mod logs;
 pub mod model;
 pub mod refresh;
 pub mod stats;
+pub mod usage;
 
 use std::sync::Arc;
 

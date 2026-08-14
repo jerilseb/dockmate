@@ -101,6 +101,7 @@ fn scope_label(scope: Scope) -> &'static str {
         Scope::Global => "",
         Scope::Containers => "containers",
         Scope::Removable => "any tab",
+        Scope::Volumes => "volumes",
     }
 }
 

@@ -46,6 +46,7 @@ pub enum Command {
 
     // Bulk
     Prune,
+    MeasureVolumes,
 
     // Misc
     CopyId,
@@ -69,6 +70,8 @@ pub enum Scope {
     Containers,
     /// On any tab that lists removable resources.
     Removable,
+    /// Only on the volumes tab.
+    Volumes,
 }
 
 /// A key, reduced to what we actually discriminate on. Shift is already encoded
@@ -372,6 +375,14 @@ pub const COMMANDS: &[CommandSpec] = &[
         help: "Delete every unused resource on this tab (asks first)",
         scope: Scope::Removable,
         footer: false,
+    },
+    CommandSpec {
+        command: Command::MeasureVolumes,
+        keys: &[Key::c('c')],
+        name: "volumes: measure size",
+        help: "Ask the daemon how much disk each volume uses (slow — it walks them)",
+        scope: Scope::Volumes,
+        footer: true,
     },
     // ---- misc ------------------------------------------------------------
     CommandSpec {

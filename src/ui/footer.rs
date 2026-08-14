@@ -122,6 +122,7 @@ fn short_label(command: Command, app: &App) -> &'static str {
         Command::Restart => "restart",
         Command::Exec => "shell",
         Command::Remove => "delete",
+        Command::MeasureVolumes => "sizes",
         Command::Filter => "filter",
         Command::Help => "help",
         Command::Quit => "quit",
@@ -134,5 +135,6 @@ fn applies(scope: Scope, tab: Tab) -> bool {
         Scope::Global => true,
         Scope::Containers => tab == Tab::Containers,
         Scope::Removable => true,
+        Scope::Volumes => tab == Tab::Volumes,
     }
 }

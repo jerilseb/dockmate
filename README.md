@@ -23,6 +23,10 @@ A terminal UI for managing Docker — containers, images, volumes and networks �
   came for and `Z` toggles the lot. Each header says how much of the stack is up and rows shorten
   to their service name. Containers nobody deployed collect in a `standalone` bucket at the
   bottom.
+- **Volume sizes, on request.** Docker doesn't hand them out with the volume list — the only
+  endpoint that knows walks every volume directory, which takes seconds. So `c` asks for a
+  measurement, the column spins while the daemon works, and the answer sticks around and stays
+  sortable until you ask again.
 - **Fuzzy filter** (`/`) and a **command palette** (`:`) over every command dockmate has.
 - **Mouse, if you want it.** Click tabs and rows, double-click for details, click a column
   header to sort by it, wheel over whichever pane you're pointing at. Off with `--no-mouse`.
@@ -107,6 +111,7 @@ all generated from the same table, so they can't drift.
 | `u` `S` `r` `p` `K` | start · stop · restart · pause · kill |
 | `s` | shell into the container |
 | `d` `P` | delete selected · prune unused (both ask first) |
+| `c` | volumes: measure how much disk each one uses |
 | `y` | copy id to the clipboard (OSC 52, works over SSH) |
 | `/` `:` `?` | filter · command palette · help |
 | `z` `space` `Z` | group by stack · fold one · fold all |
