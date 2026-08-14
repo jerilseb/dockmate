@@ -215,6 +215,28 @@ pub fn title<'a>(app: &App, name: &'a str, detail: Option<String>, focused: bool
     spans
 }
 
+/// A right-aligned label for the far end of a pane's top border.
+///
+/// For state that belongs to the pane but would crowd the breadcrumb on the
+/// left — and that the eye wants near the columns it describes rather than
+/// buried at the end of a subtitle.
+pub fn corner<'a>(app: &App, text: String) -> Line<'a> {
+    Line::from(vec![
+        Span::raw(" "),
+        Span::styled(text, app.theme.dim()),
+        Span::raw(" "),
+    ])
+    .right_aligned()
+}
+
+/// The display width a title built by [`title`] or [`corner`] will occupy.
+pub fn spans_width(spans: &[Span<'_>]) -> usize {
+    spans
+        .iter()
+        .map(|s| crate::util::format::width(&s.content))
+        .sum()
+}
+
 /// Centre a box of the given size inside `area`, clamped to fit.
 pub fn centered(area: Rect, width: u16, height: u16) -> Rect {
     let width = width.min(area.width);

@@ -19,12 +19,18 @@ const SPACING: u16 = 1;
 
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let focused = ui::is_focused(app, Focus::List);
-    let subtitle = subtitle(app);
-    let block = ui::pane(
-        app,
-        ui::title(app, tab_label(app.tab), Some(subtitle), focused),
-        focused,
-    );
+    let title = ui::title(app, tab_label(app.tab), Some(subtitle(app)), focused);
+    let sort = sort_label(app);
+
+    // Both titles share the one border row, so the corner only gets to claim
+    // its space once the pane's own name has had its. Two cells for the corners
+    // themselves, two for the padding `corner` adds.
+    let room = ui::spans_width(&title) + format::width(&sort) + 4 <= area.width as usize;
+
+    let mut block = ui::pane(app, title, focused);
+    if room {
+        block = block.title_top(ui::corner(app, sort));
+    }
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -54,26 +60,19 @@ fn tab_label(tab: Tab) -> &'static str {
     }
 }
 
-/// `12/31 · sorted by cpu ↓` — the state of the list at a glance.
+/// `12/31 · 3 stacks · filtered` — the state of the list at a glance.
+///
+/// The sort lives in the opposite corner rather than here: it describes the
+/// columns, so it belongs over the end of them, and a subtitle that grows a
+/// stack count and a filter marker is the first thing a narrow pane truncates.
 fn subtitle(app: &App) -> String {
     let shown = app.visible_items();
     let total = app.total_rows();
-    // Same helper the column chevron uses, so the two always agree.
-    let arrow = if app.sort_descending() {
-        app.symbols.arrow_down
-    } else {
-        app.symbols.arrow_up
-    };
     let mut s = if shown == total {
         format!("{total}")
     } else {
         format!("{shown}/{total}")
     };
-    s.push_str(&format!(
-        "  {}  {} {arrow}",
-        app.symbols.bullet,
-        app.sort().label()
-    ));
     if app.grouping() {
         s.push_str(&format!(
             "  {}  {} stack{}",
@@ -86,6 +85,20 @@ fn subtitle(app: &App) -> String {
         s.push_str(&format!("  {}  filtered", app.symbols.bullet));
     }
     s
+}
+
+/// `cpu ▾` — the column the list is sorted by, and which way it runs. Drawn in
+/// the pane's right-hand corner, over the columns it's talking about.
+///
+/// Takes its arrow from the same helper as the column chevron, so the two can't
+/// end up pointing opposite ways on the same screen.
+fn sort_label(app: &App) -> String {
+    let arrow = if app.sort_descending() {
+        app.symbols.arrow_down
+    } else {
+        app.symbols.arrow_up
+    };
+    format!("{} {arrow}", app.sort().label())
 }
 
 fn empty_state(frame: &mut Frame, app: &App, area: Rect) {
