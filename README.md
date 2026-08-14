@@ -170,11 +170,6 @@ The unit tests cover the parts worth pinning down in isolation: the `docker stat
 memory arithmetic, log timestamp parsing, unicode-safe truncation, and the fuzzy matcher's
 ranking. Everything else is verified by driving the real binary against a real daemon.
 
-The GIF at the top is regenerated with [vhs](https://github.com/charmbracelet/vhs) from
-`docs/demo.tape`, against two throwaway compose stacks so that grouping has something real to
-group. The tape's header comment has the four commands: bring the stacks up, record, tear them
-down.
-
 Releases are cut by tagging. Bump `version` in `Cargo.toml`, run `cargo check` so `Cargo.lock`
 follows, commit, then push a `v`-prefixed tag — the workflow refuses to build if the tag and the
 manifest disagree. It builds all three targets, attaches the tarballs and their checksums to the
