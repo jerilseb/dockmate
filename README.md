@@ -3,21 +3,7 @@
 A terminal UI for managing Docker — containers, images, volumes and networks — built with
 [ratatui](https://ratatui.rs) and [bollard](https://docs.rs/bollard).
 
-```
-╭ dockmate ──────────────────────────────────── docker 29.7.2  ·  20/21 running ╮
-│ ▸ Containers 21     Images 41     Volumes 27     Networks 8                   │
-╰───────────────────────────────────────────────────────────────────────────────╯
-╭ containers  21  ·  name ▴ ────────────────────────────────────────────────────╮
-│   NAME ▴                 IMAGE                    STATE          CPU      MEM  │
-│ ● argilla-postgres-1     postgres:14              Up 2 days     0.0%   15.6MB  │
-│ ● evalm8-server          …divyam-evalm8:dev-late… Up 2 days     2.0%    158MB  │
-│ ○ lakefs-setup           curlimages/curl:latest   Exited (0)       -        -  │
-╰───────────────────────────────────────────────────────────────────────────────╯
-╭ logs · evalm8-server  ·  following ───────────────────────────────────────────╮
-│ 11:09:43 INFO  server listening on :9000                                       │
-╰───────────────────────────────────────────────────────────────────────────────╯
- ↑↓ move   tab switch   ⏎ details   l hide logs   S stop   s shell   / filter   ?
-```
+![dockmate: live container list with streaming logs, the detail pane, stacks folded by compose project, and a fuzzy filter](docs/demo.gif)
 
 ## What it does
 
@@ -44,10 +30,27 @@ A terminal UI for managing Docker — containers, images, volumes and networks �
 ## Install
 
 ```sh
+brew install jerilseb/tap/dockmate
+```
+
+Or take a binary from the [latest release](https://github.com/jerilseb/dockmate/releases/latest)
+and drop it on your `PATH`:
+
+```sh
+tar xzf dockmate_*_linux_amd64.tar.gz
+install -m 755 dockmate ~/.local/bin/
+```
+
+Builds are published for macOS on Apple silicon and for Linux on x86_64 and arm64. The Linux
+binaries are statically linked against musl, so they don't care which distro or glibc version
+you're on. Anything else builds from source:
+
+```sh
 cargo install --path .
 ```
 
-Requires Rust 1.86+ and access to a Docker daemon.
+Requires Rust 1.86+, and access to a Docker daemon — dockmate talks to the socket directly, so
+you need to be able to reach it (`docker version` working is the test).
 
 ## Usage
 
@@ -166,6 +169,16 @@ cargo fmt --check
 The unit tests cover the parts worth pinning down in isolation: the `docker stats` CPU and
 memory arithmetic, log timestamp parsing, unicode-safe truncation, and the fuzzy matcher's
 ranking. Everything else is verified by driving the real binary against a real daemon.
+
+The GIF at the top is regenerated with [vhs](https://github.com/charmbracelet/vhs) from
+`docs/demo.tape`, against two throwaway compose stacks so that grouping has something real to
+group. The tape's header comment has the four commands: bring the stacks up, record, tear them
+down.
+
+Releases are cut by tagging. Bump `version` in `Cargo.toml`, run `cargo check` so `Cargo.lock`
+follows, commit, then push a `v`-prefixed tag — the workflow refuses to build if the tag and the
+manifest disagree. It builds all three targets, attaches the tarballs and their checksums to the
+release, and prints the `url`/`sha256` pairs the Homebrew formula needs into the job summary.
 
 ## Not included
 

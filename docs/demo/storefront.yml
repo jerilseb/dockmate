@@ -1,0 +1,32 @@
+# Throwaway stack, only so the README demo has real compose projects to group
+# by. Every image is a common one you probably already have.
+#
+#   docker compose -p storefront -f docs/demo/storefront.yml up -d
+#   docker compose -p storefront -f docs/demo/storefront.yml down -v
+services:
+  web:
+    image: nginx:alpine
+    command: ["nginx", "-g", "daemon off;"]
+  api:
+    image: alpine:3.20
+    command:
+      - sh
+      - -c
+      - |
+        i=0
+        while :; do
+          i=$$((i+1))
+          echo "level=info msg=\"request served\" route=/v1/orders status=200 dur=$${i}ms"
+          sleep 1
+          echo "level=info msg=\"cache hit\" key=orders:page:1"
+          sleep 1
+        done
+  worker:
+    image: alpine:3.20
+    command: ["sh", "-c", "while :; do echo 'level=info msg=\"job finished\" queue=email'; sleep 3; done"]
+  cache:
+    image: redis:latest
+  db:
+    image: postgres:18.4-bookworm
+    environment:
+      POSTGRES_PASSWORD: demo

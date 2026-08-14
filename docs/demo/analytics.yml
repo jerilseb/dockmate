@@ -1,0 +1,14 @@
+# The second throwaway stack. It runs its own postgres so the demo can show one
+# service name living under two different projects, which is the whole point of
+# grouping on the compose label rather than on the container name.
+#
+#   docker compose -p analytics -f docs/demo/analytics.yml up -d
+#   docker compose -p analytics -f docs/demo/analytics.yml down -v
+services:
+  collector:
+    image: alpine:3.20
+    command: ["sh", "-c", "while :; do echo 'level=info msg=\"batch flushed\" events=128'; sleep 2; done"]
+  db:
+    image: postgres:18.4-bookworm
+    environment:
+      POSTGRES_PASSWORD: demo
