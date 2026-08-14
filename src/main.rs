@@ -37,7 +37,8 @@ struct Args {
     host: Option<String>,
 
     /// How often to poll the daemon, in milliseconds.
-    #[arg(long, value_name = "MS", default_value_t = 2000)]
+    /// Zero is rejected here because tokio's interval panics on it.
+    #[arg(long, value_name = "MS", default_value_t = 2000, value_parser = clap::value_parser!(u64).range(1..))]
     interval: u64,
 
     /// Draw with plain ASCII instead of Unicode glyphs.

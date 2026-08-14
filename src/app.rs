@@ -1104,6 +1104,12 @@ impl App {
         self.dirty = true;
         match ev {
             AppEvent::Snapshot(snap) => {
+                // A snapshot is proof the daemon is reachable. The banner can't
+                // wait for DaemonOk alone: the event stream sends DaemonError on
+                // its own failures but never an all-clear, so a hiccup on that
+                // one connection would otherwise leave the banner up while the
+                // poller carries on refreshing underneath it.
+                self.daemon_recovered();
                 self.containers = snap.containers;
                 self.images = snap.images;
                 self.volumes = snap.volumes;
@@ -1135,16 +1141,17 @@ impl App {
                 }
                 self.logs.loading = false;
                 if self.logs.lines.len() >= LOG_CAPACITY {
+                    // `scroll` counts back from the newest line, so dropping the
+                    // oldest doesn't move the viewed text; only the push below
+                    // does.
                     self.logs.lines.pop_front();
-                    // Keep the viewport anchored to the same text when we're
-                    // scrolled back and the buffer is rolling.
-                    if self.logs.scroll > 0 {
-                        self.logs.scroll = self.logs.scroll.saturating_sub(1);
-                    }
                 }
                 self.logs.lines.push_back(line);
+                // Keep the viewport anchored to the same text when we're
+                // scrolled back: each new line puts it one further from the
+                // bottom, capped at the oldest line we still hold.
                 if !self.logs.follow && self.logs.scroll > 0 {
-                    self.logs.scroll += 1;
+                    self.logs.scroll = (self.logs.scroll + 1).min(self.logs.lines.len() - 1);
                 }
             }
             AppEvent::LogAttached { generation } => {
@@ -1209,14 +1216,18 @@ impl App {
                 self.daemon_error = Some(msg);
                 self.stats_mgr.clear();
             }
-            AppEvent::DaemonOk => {
-                if self.daemon_error.take().is_some() {
-                    self.toast(
-                        ToastKind::Success,
-                        "reconnected to the docker daemon".into(),
-                    );
-                }
-            }
+            AppEvent::DaemonOk => self.daemon_recovered(),
+        }
+    }
+
+    /// Take down the unreachable banner, announcing the recovery if there was
+    /// anything to recover from.
+    fn daemon_recovered(&mut self) {
+        if self.daemon_error.take().is_some() {
+            self.toast(
+                ToastKind::Success,
+                "reconnected to the docker daemon".into(),
+            );
         }
     }
 
@@ -1528,7 +1539,9 @@ impl App {
     }
 
     fn scroll_logs(&mut self, delta: isize) {
-        let max = self.logs.lines.len();
+        // Top out with the oldest line still on screen; one step further and
+        // the pane would render nothing at all.
+        let max = self.logs.lines.len().saturating_sub(1);
         let next = (self.logs.scroll as isize - delta).clamp(0, max as isize) as usize;
         self.logs.scroll = next;
         // Scrolling away from the bottom implicitly turns off follow; coming

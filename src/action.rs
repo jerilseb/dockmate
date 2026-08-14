@@ -100,6 +100,14 @@ impl Key {
     }
 
     fn matches(&self, ev: &KeyEvent) -> bool {
+        // Alt, Super and friends make a different chord: alt+q must not quit.
+        // Shift is fine — it's already encoded in the character.
+        if ev
+            .modifiers
+            .intersects(!(KeyModifiers::CONTROL | KeyModifiers::SHIFT))
+        {
+            return false;
+        }
         let ctrl = ev.modifiers.contains(KeyModifiers::CONTROL);
         self.ctrl == ctrl && self.code == ev.code
     }
@@ -510,6 +518,16 @@ mod tests {
         let with_ctrl = KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL);
         assert_eq!(resolve(&plain), Some(Command::Restart));
         assert_eq!(resolve(&with_ctrl), Some(Command::Refresh));
+    }
+
+    #[test]
+    fn alt_chords_trigger_nothing() {
+        // Alt-modified keys often belong to the terminal or window manager;
+        // treating alt+q as a bare q would quit out from under the user.
+        let alt = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::ALT);
+        assert_eq!(resolve(&alt), None);
+        let ctrl_alt = KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL | KeyModifiers::ALT);
+        assert_eq!(resolve(&ctrl_alt), None);
     }
 
     #[test]
