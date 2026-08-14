@@ -167,6 +167,23 @@ fn render<'a>(
     constraints: &[Constraint],
     rows: Vec<Row<'a>>,
 ) {
+    // A blank row between the pane's top border and the column header. The
+    // table otherwise starts flush against the border, which reads as cramped.
+    // Everything below — the header hit regions, the body rect, the table
+    // itself — is measured from `area`, so insetting it here is enough.
+    //
+    // Skipped on a pane too short to spare the row, where a header with nothing
+    // under it would be worse than a tight one.
+    let area = if area.height > 3 {
+        Rect {
+            y: area.y + 1,
+            height: area.height - 1,
+            ..area
+        }
+    } else {
+        area
+    };
+
     let theme = app.theme.clone();
     let active_sort = app.sort();
     // Only the active column is marked, so exactly one header grows by the two
