@@ -1667,13 +1667,11 @@ impl App {
             return;
         }
 
-        if job.needs_confirmation() {
-            self.confirm = Some(job);
-            self.confirm_accept = true;
-            self.mode = Mode::Confirm;
-        } else {
-            self.start_job(job);
-        }
+        // Every job is a mutation of something the user cares about, so none
+        // of them run straight off a keypress.
+        self.confirm = Some(job);
+        self.confirm_accept = true;
+        self.mode = Mode::Confirm;
     }
 
     fn start_job(&mut self, job: Job) {

@@ -144,29 +144,29 @@ impl Job {
         }
     }
 
-    /// Destructive jobs — and stopping a container — get a confirmation dialog first.
-    pub fn needs_confirmation(&self) -> bool {
-        matches!(
-            self,
-            Self::Stop { .. }
-                | Self::Kill { .. }
-                | Self::RemoveContainer { .. }
-                | Self::RemoveImage { .. }
-                | Self::RemoveVolume { .. }
-                | Self::RemoveNetwork { .. }
-                | Self::PruneContainers
-                | Self::PruneImages
-                | Self::PruneVolumes
-                | Self::PruneNetworks
-        )
-    }
-
-    /// The question the confirm dialog asks.
+    /// The question the confirm dialog asks. Every job goes through it, so
+    /// every variant needs an arm here.
     pub fn confirm_prompt(&self) -> (String, String) {
         match self {
+            Self::Start { name, .. } => (
+                "Start container?".into(),
+                format!("{name} will be started."),
+            ),
             Self::Stop { name, .. } => (
                 "Stop container?".into(),
                 format!("{name} will be sent SIGTERM and stopped."),
+            ),
+            Self::Restart { name, .. } => (
+                "Restart container?".into(),
+                format!("{name} will be stopped and started again."),
+            ),
+            Self::Pause { name, .. } => (
+                "Pause container?".into(),
+                format!("{name} and every process in it will be frozen."),
+            ),
+            Self::Unpause { name, .. } => (
+                "Resume container?".into(),
+                format!("{name} will be unfrozen."),
             ),
             Self::Kill { name, .. } => (
                 "Kill container?".into(),
@@ -202,7 +202,6 @@ impl Job {
                 "Prune networks?".into(),
                 "Every network not used by a container will be deleted.".into(),
             ),
-            other => ("Are you sure?".into(), other.describe()),
         }
     }
 }
