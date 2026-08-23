@@ -15,8 +15,8 @@ A terminal UI for managing Docker — containers, images, volumes and networks �
 - **A real shell.** Press `s` and dockmate hands the terminal to `bash` (or `ash`, or `sh` —
   whatever the image has) running inside the container, forwards window resizes, and takes the
   terminal back cleanly when you exit.
-- **Lifecycle actions** with a confirmation step on anything destructive, an in-row spinner
-  while a job runs, and the daemon's own error text if it refuses.
+- **Lifecycle actions** with a confirmation step on anything destructive — and on stopping a
+  container — an in-row spinner while a job runs, and the daemon's own error text if it refuses.
 - **Stacks, folded.** `z` groups containers by their compose project (or swarm stack), read from
   the labels rather than guessed from the name. It opens with every stack folded, because the
   reason to group a dozen projects is to see what's deployed at all — `space` unfolds the one you

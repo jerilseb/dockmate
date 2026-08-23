@@ -144,11 +144,12 @@ impl Job {
         }
     }
 
-    /// Destructive jobs get a confirmation dialog first.
+    /// Destructive jobs — and stopping a container — get a confirmation dialog first.
     pub fn needs_confirmation(&self) -> bool {
         matches!(
             self,
-            Self::Kill { .. }
+            Self::Stop { .. }
+                | Self::Kill { .. }
                 | Self::RemoveContainer { .. }
                 | Self::RemoveImage { .. }
                 | Self::RemoveVolume { .. }
@@ -163,6 +164,10 @@ impl Job {
     /// The question the confirm dialog asks.
     pub fn confirm_prompt(&self) -> (String, String) {
         match self {
+            Self::Stop { name, .. } => (
+                "Stop container?".into(),
+                format!("{name} will be sent SIGTERM and stopped."),
+            ),
             Self::Kill { name, .. } => (
                 "Kill container?".into(),
                 format!("{name} will be sent SIGKILL and stopped immediately."),
