@@ -526,7 +526,10 @@ mod tests {
         // treating alt+q as a bare q would quit out from under the user.
         let alt = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::ALT);
         assert_eq!(resolve(&alt), None);
-        let ctrl_alt = KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL | KeyModifiers::ALT);
+        let ctrl_alt = KeyEvent::new(
+            KeyCode::Char('r'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        );
         assert_eq!(resolve(&ctrl_alt), None);
     }
 

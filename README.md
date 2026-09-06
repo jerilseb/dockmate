@@ -22,7 +22,7 @@ A terminal UI for managing Docker — containers, images, volumes and networks �
   reason to group a dozen projects is to see what's deployed at all — `space` unfolds the one you
   came for and `Z` toggles the lot. Each header says how much of the stack is up and rows shorten
   to their service name. Containers nobody deployed collect in a `standalone` bucket at the
-  bottom.
+  bottom. `group_by_stack = true` in the config file makes it the view dockmate opens on.
 - **Volume sizes, on request.** Docker doesn't hand them out with the volume list — the only
   endpoint that knows walks every volume directory, which takes seconds. So `c` asks for a
   measurement, the column spins while the daemon works, and the answer sticks around and stays
@@ -76,6 +76,34 @@ dockmate --interval 1000              # poll every second instead of every two
 
 The default is Unicode geometric shapes (`●○◐`) and a 24-bit palette, which works in any
 modern terminal without a patched font.
+
+### Configuration
+
+Defaults you'd otherwise retype go in `~/.config/dockmate.toml` (or
+`$XDG_CONFIG_HOME/dockmate.toml`). Every key is optional, and the file itself is optional —
+dockmate works exactly as before without one.
+
+```toml
+host           = "tcp://10.0.0.5:2375"  # default: $DOCKER_HOST, else the local socket
+interval       = 2000                   # daemon poll, in milliseconds
+glyphs         = "unicode"              # unicode | nerd | ascii
+palette        = "truecolor"            # truecolor | ansi | none
+mouse          = true                   # false is the same as always passing --no-mouse
+group_by_stack = false                  # true opens on the stack view, every stack folded
+```
+
+`group_by_stack` is the one setting with no flag behind it: set it and dockmate starts where
+`z` would put you, with every stack folded shut, which is the view worth having by default if
+you mostly run compose projects.
+
+**Precedence is flag, then environment, then file.** A flag can only ever turn something *on*
+— there's no `--color` to undo a `--no-color` — so the file is the only place that can ask for
+a setting back, and the flags stay the way to override it for one run. `DOCKER_HOST` sits above
+the file's `host` because exporting it is a decision about *this shell*, where the file is a
+decision about every run.
+
+A key the file doesn't recognise raises a toast naming it, rather than failing or being ignored
+in silence. A malformed value is refused outright, with the line number, before the TUI starts.
 
 ### Mouse
 
@@ -173,8 +201,9 @@ cargo fmt --check
 ```
 
 The unit tests cover the parts worth pinning down in isolation: the `docker stats` CPU and
-memory arithmetic, log timestamp parsing, unicode-safe truncation, and the fuzzy matcher's
-ranking. Everything else is verified by driving the real binary against a real daemon.
+memory arithmetic, log timestamp parsing, unicode-safe truncation, the fuzzy matcher's ranking,
+and the config file's parser. Everything else is verified by driving the real binary against a
+real daemon.
 
 Releases are cut by tagging. Bump `version` in `Cargo.toml`, run `cargo check` so `Cargo.lock`
 follows, commit, then push a `v`-prefixed tag — the workflow refuses to build if the tag and the

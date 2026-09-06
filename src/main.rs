@@ -2,6 +2,7 @@
 
 mod action;
 mod app;
+mod config;
 mod docker;
 mod event;
 mod tui;
@@ -24,6 +25,9 @@ use crate::ui::theme::{Glyphs, Palette, Theme};
 /// How often the UI wakes up to animate spinners and expire toasts.
 const TICK: Duration = Duration::from_millis(100);
 
+/// How often to poll the daemon when neither the flag nor the config file says.
+const DEFAULT_INTERVAL: u64 = 2000;
+
 #[derive(Parser, Debug)]
 #[command(
     name = "dockmate",
@@ -32,14 +36,15 @@ const TICK: Duration = Duration::from_millis(100);
 )]
 struct Args {
     /// Docker host to connect to, e.g. tcp://10.0.0.5:2375 or unix:///var/run/docker.sock.
-    /// Defaults to DOCKER_HOST, then the local socket.
+    /// Defaults to DOCKER_HOST, then `host` in the config file, then the local socket.
     #[arg(long, value_name = "URL")]
     host: Option<String>,
 
     /// How often to poll the daemon, in milliseconds.
     /// Zero is rejected here because tokio's interval panics on it.
-    #[arg(long, value_name = "MS", default_value_t = 2000, value_parser = clap::value_parser!(u64).range(1..))]
-    interval: u64,
+    /// Defaults to `interval` in the config file, then 2000.
+    #[arg(long, value_name = "MS", value_parser = clap::value_parser!(u64).range(1..))]
+    interval: Option<u64>,
 
     /// Draw with plain ASCII instead of Unicode glyphs.
     #[arg(long)]
@@ -64,7 +69,11 @@ struct Args {
 }
 
 impl Args {
-    fn theme(&self) -> Theme {
+    /// Resolve the appearance settings. Precedence throughout is flag, then
+    /// environment, then config file, then built-in default — a flag can only
+    /// ever turn something *on*, which is why the config file is the only place
+    /// that can ask for, say, colour back after a `palette` was set.
+    fn theme(&self, config: &config::Config) -> Theme {
         // NO_COLOR is a de-facto standard; honour it without needing a flag.
         let no_color = self.no_color || std::env::var_os("NO_COLOR").is_some();
         let palette = if no_color {
@@ -72,7 +81,7 @@ impl Args {
         } else if self.ansi {
             Palette::Ansi
         } else {
-            Palette::TrueColor
+            config.palette.unwrap_or(Palette::TrueColor)
         };
 
         let glyphs = if self.ascii || std::env::var_os("DOCKMATE_ASCII").is_some() {
@@ -80,10 +89,36 @@ impl Args {
         } else if self.icons || std::env::var_os("DOCKMATE_ICONS").is_some() {
             Glyphs::Nerd
         } else {
-            Glyphs::Unicode
+            config.glyphs.unwrap_or(Glyphs::Unicode)
         };
 
         Theme::new(palette, glyphs)
+    }
+
+    /// The daemon to talk to. `DOCKER_HOST` sits above the config file because
+    /// it's the more specific of the two: exporting it is a decision about
+    /// *this shell*, where the config file is a decision about every run.
+    /// `None` leaves bollard to auto-detect, which is what reads `DOCKER_HOST`.
+    fn host(&self, config: &config::Config) -> Option<String> {
+        if self.host.is_some() {
+            return self.host.clone();
+        }
+        if std::env::var_os("DOCKER_HOST").is_some_and(|h| !h.is_empty()) {
+            return None;
+        }
+        config.host.clone()
+    }
+
+    fn interval(&self, config: &config::Config) -> Duration {
+        Duration::from_millis(
+            self.interval
+                .or(config.interval)
+                .unwrap_or(DEFAULT_INTERVAL),
+        )
+    }
+
+    fn mouse(&self, config: &config::Config) -> bool {
+        !self.no_mouse && config.mouse.unwrap_or(true)
     }
 }
 
@@ -104,7 +139,12 @@ fn main() -> Result<()> {
 }
 
 async fn run(args: Args) -> Result<()> {
-    let client = Client::connect(args.host.as_deref())?;
+    // Before anything else: a malformed config is reported as a plain message,
+    // not swallowed by the alternate screen we haven't entered yet.
+    let loaded = config::load()?;
+    let config = loaded.config;
+
+    let client = Client::connect(args.host(&config).as_deref())?;
 
     // Fail before taking over the terminal if the daemon isn't there — a bare
     // error message is much friendlier than an empty TUI.
@@ -116,16 +156,32 @@ async fn run(args: Args) -> Result<()> {
     })?;
 
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let refresher = docker::refresh::spawn(
+    let refresher = docker::refresh::spawn(client.clone(), tx.clone(), args.interval(&config));
+
+    let mut app = App::new(
         client.clone(),
         tx.clone(),
-        Duration::from_millis(args.interval),
+        refresher,
+        args.theme(&config),
+        config.group_by_stack.unwrap_or(false),
     );
-
-    let mut app = App::new(client.clone(), tx.clone(), refresher, args.theme());
     app.on_app_event(AppEvent::Daemon(Box::new(daemon)));
 
-    let mut terminal = tui::enter(!args.no_mouse)?;
+    // A key we didn't recognise is a typo, and a typo that silently does
+    // nothing gets reported as a broken setting. Say so once, on the way in.
+    for key in &loaded.warnings {
+        let where_ = loaded
+            .path
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "dockmate.toml".into());
+        app.toast(
+            ToastKind::Error,
+            format!("unknown setting `{key}` in {where_}"),
+        );
+    }
+
+    let mut terminal = tui::enter(args.mouse(&config))?;
     let outcome = event_loop(&mut terminal, &mut app, &mut rx, &client).await;
 
     tui::leave()?;

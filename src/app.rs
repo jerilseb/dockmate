@@ -416,6 +416,11 @@ pub struct App {
     /// looks like from here.
     collapsed: std::collections::HashSet<String>,
     pub group_by_stack: bool,
+    /// Set when grouping came from the config file rather than a keypress.
+    /// `z` folds every stack as it opens, but at construction there are no
+    /// containers to fold yet — so the fold is deferred to the first snapshot
+    /// that has some, and this says it's still owed.
+    fold_stacks_on_load: bool,
     /// Selection, remembered by identity so it survives a refresh that
     /// reorders rows.
     selected: [Option<String>; 4],
@@ -487,6 +492,7 @@ impl App {
         tx: mpsc::UnboundedSender<AppEvent>,
         refresher: Refresher,
         theme: Theme,
+        group_by_stack: bool,
     ) -> Self {
         let symbols = Symbols::new(theme.glyphs);
         Self {
@@ -506,7 +512,8 @@ impl App {
             views: Default::default(),
             groups: Vec::new(),
             collapsed: Default::default(),
-            group_by_stack: false,
+            group_by_stack,
+            fold_stacks_on_load: group_by_stack,
             selected: Default::default(),
             selected_group: None,
             offset: [0; 4],
@@ -1123,6 +1130,15 @@ impl App {
                     self.containers.iter().map(|c| c.id.as_str()).collect();
                 self.stats.retain(|id, _| live.contains(id.as_str()));
 
+                // Grouping asked for by the config file still owes the fold
+                // that `z` performs as it opens — see `fold_stacks_on_load`.
+                // Deferred until there is something to fold, so an empty first
+                // snapshot doesn't consume it.
+                if self.fold_stacks_on_load && !self.containers.is_empty() {
+                    self.fold_stacks_on_load = false;
+                    self.collapsed.extend(self.containers.iter().map(stack_key));
+                }
+
                 self.stats_mgr
                     .sync(&self.client, &self.containers, &self.tx);
                 self.rebuild_all_views();
@@ -1359,6 +1375,9 @@ impl App {
             Command::ToggleGroup => {
                 if self.tab == Tab::Containers {
                     self.group_by_stack = !self.group_by_stack;
+                    // Whatever the config asked for, the user has now said what
+                    // they want; the deferred fold would be second-guessing it.
+                    self.fold_stacks_on_load = false;
                     if self.group_by_stack {
                         // Stacked mode opens folded. The reason to group a dozen
                         // projects is to see what's deployed at all, and opening
